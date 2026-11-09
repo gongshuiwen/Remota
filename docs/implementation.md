@@ -1,6 +1,6 @@
 # Remota 第二阶段实施规划
 
-日期 2026年11月9日。本文维护推荐技术组合、验证基线与分步门槛；当前验证状态集中在 [2.0 技术验证结果](#20-技术验证结果)。产品工程尚未初始化。
+日期 2026年11月9日。本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.1 控制核心结果](#21-控制核心结果)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
@@ -40,11 +40,11 @@
 
 Go 1.27 已发布新的严格 JSON API；React 官方也提供基于 Vite 的独立应用路径。这里的静态管理台适合该组合，Node 只承担构建和测试。依据见 [Go 1.27](https://go.dev/doc/go1.27)、[React 独立应用](https://react.dev/learn/build-a-react-app-from-scratch)与 [Vite 构建](https://vite.dev/guide/)。
 
-验证版本固定在 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)，已验证范围见[技术验证结果](#20-技术验证结果)。产品工程建立时沿用该基线，新增或升级依赖重新验证。前端版本及 package-lock.json 在 2.6 验证后建立。MCP 协议版本继续固定为契约中的 2025-11-25。
+根 [go.mod](../go.mod)已建立 Go 1.27.3 基线，当前控制核心仅使用标准库，不需要 go.sum。外部依赖的验证版本固定在 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)，已验证范围见[技术验证结果](#20-技术验证结果)；后续接入时沿用该基线，新增或升级依赖重新验证。前端版本及 package-lock.json 在 2.6 验证后建立。MCP 协议版本继续固定为契约中的 2025-11-25。
 
 ## 建议项目结构
 
-以下为产品目标目录，随相应步骤逐步建立；validation 已存在，其独立 Go module 只用于 2.0 验证，产品仍采用根目录单一 module。
+以下为产品目标目录，随相应步骤逐步建立；当前已有根 go.mod、internal/clock、internal/server/core 与 validation。validation 的独立 Go module 只用于技术探针，产品采用根目录单一 module；其余目录尚未建立。
 
 ```text
 Remota/
@@ -188,7 +188,7 @@ Windows 的时钟探针绑定 QueryInterruptTimePrecise，包含休眠补偿；m
 | Windows arm64 | 通过 | 无对应设备，未运行 |
 | macOS amd64 / arm64 | 均通过 | 无原生 runner，未运行 |
 | 真实休眠 | 不适用 | 未执行；仅清醒状态的默认及 1 秒时钟窗口通过 |
-| Go 竞态检测 | 不适用 | 未执行；当前环境缺少 C 编译器 |
+| Go 竞态检测 | 不适用 | 2.0 独立探针未运行竞态；2.1 核心的竞态结果见[下节](#21-控制核心结果) |
 
 ### 复跑入口与收口条件
 
@@ -207,3 +207,28 @@ go test -mod=readonly -count=1 -timeout=90s ./...
 真实休眠单项入口为 go test -mod=readonly -run '^TestPlatformElapsedClock$' -count=1 -v -timeout=5m -args -clock-window=2m。操作者在观察窗口内使测试设备休眠并恢复，期间保持 UTC 时钟稳定，保存 OS 休眠/恢复记录；探针对比平台经过时间与 UTC 跨度，允许 2 秒观测误差。没有实际休眠记录的通过只证明普通推进，探针不会自动挂起设备。
 
 竞态入口为 go test -race -mod=readonly -count=1 -timeout=90s ./...，要求当前进程设置 CGO_ENABLED=1 并提供可用 C 编译器。阶段门槛统一见[实现顺序](#实现顺序与通过条件)。这些探针只证明基础能力，不能代替完整 B01、B06–B08 的产品验收。
+
+## 2.1 控制核心结果
+
+2.1 已完成，可进入 2.2。根模块的 [core](../internal/server/core/core.go)采用单个互斥锁、内存状态和[可注入时钟](../internal/clock/clock.go)，只依赖标准库。每个核心入口用同一时间样本先处理到期条件，再检查权限和状态；等待通过 BeginPoll/CompletePoll/AbortPoll 留在锁外，核心不创建后台循环或执行进程。
+
+| 验收目标 | 已验证的核心范围 | 测试入口 |
+|---|---|---|
+| D01/D02、G01、R01、V01 与 B02–B04 | 意图幂等与冲突、唯一许可及重复预算不变、撤权先于开始、结果裁决、回执重复和乱序；读取现有消息样例作状态断言 | [核心流程](../internal/server/core/core_test.go) |
+| B05、近到期注册、B06 的服务端计时部分 | 等于截止失效、同轮按绝对截止及优先级裁决、首次原因固定、回拨/提前/模拟休眠、poll 返回前复查、结束保留和缓存脱敏 | [期限与并发](../internal/server/core/deadlines_test.go) |
+| 状态与权限边界 | 决定和激活窗口、MCP 初始化/空闲期限、只读 MCP 权限、任务累计配额不淘汰幂等记录、UTF-8 字节及结果组合 | [边界检查](../internal/server/core/limits_test.go) |
+| 一致性 | 并发提交同一意图、撤权与 start、取消与结果、快照读取及返回值隔离；Linux amd64 竞态检测通过 | [并发检查](../internal/server/core/deadlines_test.go) |
+
+本次使用 Go 1.27.3，在 WSL Linux amd64 中以 GCC 和 CGO_ENABLED=1 原生运行根模块测试，竞态检测通过；go vet 与 go mod verify 通过，静态契约校验通过。平台支持状态仍以上述 2.0 矩阵和后续原生执行验收为准。
+
+在具备 C 编译器的测试环境，从仓库根目录执行；工具链使用 Go 1.27.3，宿主不同则设置 GOTOOLCHAIN=go1.27.3，竞态运行设置 CGO_ENABLED=1：
+
+```text
+go mod verify
+go vet ./...
+go test -race -count=1 -timeout=90s ./...
+```
+
+根模块的 ./... 不包含独立 validation 模块，其[复跑入口](#复跑入口与收口条件)保留。核心类型是进程内模型，不能直接当作 HTTP/MCP DTO；秘密鉴权、Agent 本机授权与首次发送锚点、严格消息适配、真实网络与进程回收均尚未接入。测试的执行事实由受控输入提供，不证明实际 spawn 或 OS 回收。
+
+下一步为 2.2：接入启动与恢复、SQLite 持久提交、凭据秘密鉴权和管理员 API，保留核心内先收紧权限、锁外提交及失败后 degraded 的边界。
