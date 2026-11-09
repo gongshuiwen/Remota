@@ -4,6 +4,23 @@
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
+## 实现顺序与通过条件
+
+按下表的依赖推进。公共消息与基础技术验证通过后可以进入使用可控时钟和受控执行事实的 2.1；平台缺口按对应阶段补齐，未验证项不因此变成平台支持。每步沿用已有验收规则，不以“能启动”替代相应行为验证。
+
+| 顺序 | 实现内容 | 通过条件 |
+|---|---|---|
+| 2.0 技术验证 | 独立探针与依赖基线；状态只在[验证矩阵](#20-技术验证结果)维护 | 公共 Schema/原始 JSON、MCP 适配、SQLite/文件锁基础验证通过，可进入 2.1；平台待验证项继续保留 |
+| 2.1 控制核心 | 使用可控时钟和执行事实构建会话、唯一任务/许可、幂等、撤权、结算及清理投影 | D01/D02、V01、B02–B05 的核心部分与近到期注册通过；同截止按统一顺序裁决；交付前通过竞态检测，快照一致且不推断未知退出 |
+| 2.2 启动与管理底座 | 初始化/普通启动/恢复、SQLite、凭据、管理员身份与管理 API | B08、管理消息正反例、Cookie/CSRF、签发结果未知及撤销写失败通过；慢提交不阻塞停止，到期/失败不报告持久成功 |
+| 2.3 只读 Agent | 本机确认、出站通道、poll、租约看门狗、ping/info、降权与结束 | N01 与 L02/B06 的相关部分通过；readonly 不探测约定之外的信息、不创建命令进程 |
+| 2.4 MCP 与任务闭环 | 接上 SDK 适配和八工具，测试中接入受控执行器 | B01、完整消息顺序、错误层次与幂等通过；受理、开始、结果分别可观察，测试替身不进入产品入口 |
+| 2.5 真实平台执行 | 实现进程边界、shell、有限输出、回收事实和独立看门狗 | 对应 OS 原生探针及真实休眠观察先通过，再验收 N02/N03、六类异常和 B02–B07；核对实际 spawn 次数与子进程状态；其他平台可分别推进 |
+| 2.6 管理台 | 登录、快照、备注、凭据、结束操作、中英文与一次性秘密 | 管理台交互规范通过；旧请求不能跨登录更新状态，修改应答丢失先核对；真实浏览器验证 Cookie/CSRF |
+| 2.7 集成与发布 | 平台构建、真实 CLI/HTTP/浏览器联合验收、静态资源嵌入与运行材料 | 全部验收用例闭环，发行包可独立运行，运行时无需 Go、Node 或 Python；明确各平台回收保证 |
+
+2.0 的基础验证不能替代后续状态机或跨端验收。Go 的竞态检测与真实网络测试配合使用；前端使用 [Vitest](https://vitest.dev/guide/)做组件行为验证，[Playwright](https://playwright.dev/docs/intro)验证浏览器完整流程。
+
 ## 推荐组合
 
 建议 Agent 与服务端统一使用 Go，管理台使用 React、TypeScript 与 Vite，持久管理状态使用 SQLite。按单实例、临时授权、出站 HTTP 和跨平台命令回收的当前范围选择依赖。
@@ -23,7 +40,109 @@
 
 Go 1.27 已发布新的严格 JSON API；React 官方也提供基于 Vite 的独立应用路径。这里的静态管理台适合该组合，Node 只承担构建和测试。依据见 [Go 1.27](https://go.dev/doc/go1.27)、[React 独立应用](https://react.dev/learn/build-a-react-app-from-scratch)与 [Vite 构建](https://vite.dev/guide/)。
 
-验证版本固定在 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)，已验证范围见下节。产品工程建立时沿用该基线，新增或升级依赖重新验证。前端版本及 package-lock.json 在 2.6 验证后建立。MCP 协议版本继续固定为契约中的 2025-11-25。
+验证版本固定在 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)，已验证范围见[技术验证结果](#20-技术验证结果)。产品工程建立时沿用该基线，新增或升级依赖重新验证。前端版本及 package-lock.json 在 2.6 验证后建立。MCP 协议版本继续固定为契约中的 2025-11-25。
+
+## 建议项目结构
+
+以下为产品目标目录，随相应步骤逐步建立；validation 已存在，其独立 Go module 只用于 2.0 验证，产品仍采用根目录单一 module。
+
+```text
+Remota/
+├─ cmd/
+│  ├─ remota-server/          # 服务端入口，组装配置、存储、核心及通道
+│  └─ remota-agent/           # Agent 入口与退出协调
+├─ internal/
+│  ├─ protocol/              # 传输 DTO、严格 codec、Schema 访问
+│  │  └─ schema/             # 构建导出的 Schema 资源
+│  ├─ clock/                 # 真实/平台经过时间；测试时注入时钟
+│  ├─ server/                # 启动、初始化、恢复和服务生命周期
+│  │  ├─ core/               # 会话、任务、凭据生效与快照的一致性边界
+│  │  ├─ httpapi/            # 设备及管理 API，分别组织处理文件
+│  │  ├─ mcp/                # SDK 适配、工具映射与传输绑定
+│  │  ├─ store/              # SQLite 事务、状态版本与目录独占
+│  │  └─ webui/              # 静态资源嵌入；dist 为构建产物
+│  └─ agent/                 # Agent 运行上下文与协作循环
+│     ├─ consent/            # 本机决定、降权与交互输入
+│     ├─ transport/          # 出站 HTTP、poll、epoch 与请求代际
+│     └─ executor/           # 进程、管道、回收；平台文件按 OS 隔离
+├─ web/
+│  ├─ src/
+│  │  ├─ api/                # 管理 API DTO 与 fetch 封装
+│  │  ├─ auth/               # 当前登录代际与敏感状态清除
+│  │  ├─ features/           # 会话、MCP 客户端、凭据页面功能
+│  │  ├─ components/         # 页面确实复用的控件
+│  │  └─ i18n/               # 中英文消息
+│  ├─ package.json
+│  └─ package-lock.json
+├─ tests/
+│  ├─ integration/           # 真实 HTTP、多端时序、网络故障注入
+│  └─ platform/              # 原生 OS 进程与休眠验证
+├─ docs/                     # 已有架构、契约、验收与本规划
+├─ tools/                    # 已有契约校验；后续构建/资源导出入口
+├─ validation/               # 已有独立技术验证：*_test.go、go.mod、go.sum
+├─ go.mod
+└─ go.sum
+```
+
+单元测试与对应 Go/前端模块同目录；跨端测试才进入 tests。测试直接读取现有契约样例并关联用例 ID。core 按业务拆文件，不把每个实体拆成公共包；core 的状态转换不依赖 MCP SDK、SQL 驱动、HTTP 请求或真实子进程。Agent 不导入 server 包。
+
+## 实现边界
+
+### 严格消息处理与模型
+
+入站按体积与身份检查、严格 JSON 解析、相应消息 Schema、跨消息业务条件的顺序处理。保留数值精度，显式检查安全整数、有限值、孤立代理项、尾随值及空白规则；不能先把数字舍入成 float64 再决定是否合法。
+
+Go DTO 只表达传输字段，不能替代 Schema；时间显式编码为固定毫秒 UTC，必填空集合输出数组，可选字段缺省时省略。MCP 输入校验须保留[协议错误与业务错误的分层](contracts/mcp.md#错误分层)。现有 Python 正反样例作为 Go 消费端的共同数据来源，不复制成另一套夹具。
+
+底层 JSON、Schema、SQL 和 SDK 错误统一映射到契约错误，不直接回显输入对象或底层异常文本。
+
+jsonschema/v6 已通过现有 Draft 2020-12 样例验证；format 默认行为需要显式配置。后续编解码沿用探针中的离线编译与格式断言设置，参见[格式断言接口](https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v6#Compiler.AssertFormat)。
+
+该库默认使用 Go 正则引擎；已通过扩展接口接入 regexp2 的 ECMAScript 模式，并验证现有 Unicode 转义与空白模式。不为适配宿主正则而改写权威 Schema。参见[正则引擎配置](https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v6#Compiler.UseRegexpEngine)。
+
+管理登录、AdminSnapshot、撤销/结束响应与健康消息已纳入现有 Schema 和共用样例。实现对应端点时仍验证 Cookie/CSRF、统计、字节及资源关联；页面组件只使用管理 API 允许的投影。
+
+### 控制核心与持久提交
+
+控制核心集中持有临时状态，用短临界区串行裁决权限与状态；HTTP 长轮询等待、进程等待和磁盘 I/O 在锁外进行。poll 等待通过会话变化通知唤醒，唤醒后回到核心重新检查，再生成响应。
+
+持久管理修改串行化：先在核心内阻止相关身份获得新能力，锁外执行存储事务，再回到核心提交管理投影或进入 degraded。写入等待不能堵住停止与到期处理，写入失败也不恢复已经收紧的权限。提交结果分类与恢复只按[存储故障规则](contracts/README.md#重启与存储故障)执行。
+
+SQLite 只保存契约声明的持久管理数据。初版建议采用 DELETE 日志模式、synchronous=EXTRA、启用外键、单连接起步；管理修订与相关凭据变更放在同一事务。SQLite 官方区分了删除日志下 FULL 与 EXTRA 的持久性，配置后需读取实际值并验证。参见[同步配置](https://www.sqlite.org/pragma.html#pragma_synchronous)与[事务原子性](https://www.sqlite.org/atomiccommit.html)。
+
+普通启动用不创建文件的打开模式，显式初始化才创建数据库；管理目录另持有系统排他锁。记录内部状态版本，未知版本按契约拒绝启动。驱动及其配套 modernc.org/libc 版本一并锁定，依据[驱动依赖说明](https://pkg.go.dev/modernc.org/sqlite)。
+
+### Agent 的时钟与执行器
+
+Agent 由本机授权状态、传输循环、独立看门狗和执行器组成。本机收紧先于网络提交；传输恢复只能恢复仍有效的原上下文。测试替身通过测试构造注入，产品入口不增加 fake/full 授权开关。
+
+时钟接口区分 UTC 展示时间与覆盖休眠的经过时间。Go 文档明确指出部分系统的单调时钟在休眠时可能停止，因此不能直接把 time.Since 当作完整租约时钟；平台候选及验证状态见 [2.0 结果](#20-技术验证结果)。timer 只用于唤醒，恢复后重新检查权限。依据见 [Go 时钟说明](https://go.dev/src/time/time.go)与[系统时钟语义](https://man7.org/linux/man-pages/man3/clock_gettime.3.html)。
+
+执行器通过平台文件隔离 Windows Job 与 Linux/macOS 进程组。os/exec 负责启动和管道，但 CommandContext 的默认取消只针对命令进程，完整回收由执行器承担。以[平台执行器约定](contracts/tasks.md#平台执行器约定)为验收边界，参见 [os/exec 取消行为](https://pkg.go.dev/os/exec#CommandContext)。
+
+### MCP SDK 的使用范围
+
+官方 SDK 作为协议适配依赖。2.0 已验证锁定版本可限制支持版本、返回 JSON 并接收原始工具参数；必需的响应补齐见[技术验证结果](#20-技术验证结果)。参见[官方 Go SDK](https://go.sdk.modelcontextprotocol.io/)及[低层 ToolHandler](https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk/mcp#ToolHandler)。
+
+工具输入输出使用契约 Schema，采用 Server.AddTool/ToolHandler 显式校验并构造结果。Remota 管理自己的身份绑定、初始化期限、空闲期限与结束流程；SDK 传输会话和 mcl 投影对应，但不是第二个授权来源。
+
+2.4 将已验证的 SDK 适配接入真实核心，并补齐初始化/空闲期限、管理结束及已受理任务不受 RPC 取消影响的验收。SDK 默认的额外方法或能力由适配层收口，不修改契约或把业务状态迁入 SDK。
+
+### 管理台与资源构建
+
+管理台使用一份同源 fetch 封装处理 Cookie、CSRF、AbortController 和登录代际；刷新行为、秘密清除及语言切换遵循[管理台交互](product/console.md)。不为各页面另建认证缓存。中英文消息先采用类型化字典，组件局部状态保存表单草稿。
+
+开发环境通过 Vite 代理连接后端，并让显式 public_url、Host、Origin 保持一致；保留与生产相同的 CSRF 与身份检查。前端自动重试策略不得覆盖修改请求的结果核对规则。
+
+构建时把权威 Schema 导出为嵌入资源，把管理台静态产物复制到服务端资源目录，再由 Go embed 编译进程序。生成副本只作构建产物，校验与源一致；两个程序共享协议数据与编解码，不共享服务端状态或执行策略。工具定义由同一契约数据构建，RPC 信封实时生成，tools-list.json 用于一致性检查。
+
+## 构建目标与验收材料
+
+Agent 的目标矩阵为 Windows、Linux、macOS 的 amd64/arm64；服务端首批发布以 Linux amd64/arm64 为主，同时保留本机开发测试能力。矩阵属于交付目标，只有对应原生 runner 的进程、计时和打包测试通过后才标记支持；交叉编译成功不等于平台验收通过。
+
+后续 CI 按契约静态校验、Go 单元/集成、前端检查、原生平台测试、发行打包的顺序建立。认证摘要、token、命令和输出不进入构建日志或快照；日志只保留允许的定位元数据。
+
+每步记录通过的用例 ID 与尚未覆盖的真实边界。实施时首先运行现有[最小校验入口](contracts/acceptance/README.md#最小校验入口)，再按当前变更增加必要测试；目录、模型、工具定义与样例共同保持一致。
 
 ## 2.0 技术验证结果
 
@@ -88,122 +207,3 @@ go test -mod=readonly -count=1 -timeout=90s ./...
 真实休眠单项入口为 go test -mod=readonly -run '^TestPlatformElapsedClock$' -count=1 -v -timeout=5m -args -clock-window=2m。操作者在观察窗口内使测试设备休眠并恢复，期间保持 UTC 时钟稳定，保存 OS 休眠/恢复记录；探针对比平台经过时间与 UTC 跨度，允许 2 秒观测误差。没有实际休眠记录的通过只证明普通推进，探针不会自动挂起设备。
 
 竞态入口为 go test -race -mod=readonly -count=1 -timeout=90s ./...，要求当前进程设置 CGO_ENABLED=1 并提供可用 C 编译器。阶段门槛统一见[实现顺序](#实现顺序与通过条件)。这些探针只证明基础能力，不能代替完整 B01、B06–B08 的产品验收。
-
-## 实现边界
-
-### 严格消息处理与模型
-
-入站按体积与身份检查、严格 JSON 解析、相应消息 Schema、跨消息业务条件的顺序处理。保留数值精度，显式检查安全整数、有限值、孤立代理项、尾随值及空白规则；不能先把数字舍入成 float64 再决定是否合法。
-
-Go DTO 只表达传输字段，不能替代 Schema；时间显式编码为固定毫秒 UTC，必填空集合输出数组，可选字段缺省时省略。MCP 输入校验须保留[协议错误与业务错误的分层](contracts/mcp.md#错误分层)。现有 Python 正反样例作为 Go 消费端的共同数据来源，不复制成另一套夹具。
-
-底层 JSON、Schema、SQL 和 SDK 错误统一映射到契约错误，不直接回显输入对象或底层异常文本。
-
-jsonschema/v6 已通过现有 Draft 2020-12 样例验证；format 默认行为需要显式配置。后续编解码沿用探针中的离线编译与格式断言设置，参见[格式断言接口](https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v6#Compiler.AssertFormat)。
-
-该库默认使用 Go 正则引擎；已通过扩展接口接入 regexp2 的 ECMAScript 模式，并验证现有 Unicode 转义与空白模式。不为适配宿主正则而改写权威 Schema。参见[正则引擎配置](https://pkg.go.dev/github.com/santhosh-tekuri/jsonschema/v6#Compiler.UseRegexpEngine)。
-
-管理登录、AdminSnapshot、撤销/结束响应与健康消息已纳入现有 Schema 和共用样例。实现对应端点时仍验证 Cookie/CSRF、统计、字节及资源关联；页面组件只使用管理 API 允许的投影。
-
-### 控制核心与持久提交
-
-控制核心集中持有临时状态，用短临界区串行裁决权限与状态；HTTP 长轮询等待、进程等待和磁盘 I/O 在锁外进行。poll 等待通过会话变化通知唤醒，唤醒后回到核心重新检查，再生成响应。
-
-持久管理修改串行化：先在核心内阻止相关身份获得新能力，锁外执行存储事务，再回到核心提交管理投影或进入 degraded。写入等待不能堵住停止与到期处理，写入失败也不恢复已经收紧的权限。提交结果分类与恢复只按[存储故障规则](contracts/README.md#重启与存储故障)执行。
-
-SQLite 只保存契约声明的持久管理数据。初版建议采用 DELETE 日志模式、synchronous=EXTRA、启用外键、单连接起步；管理修订与相关凭据变更放在同一事务。SQLite 官方区分了删除日志下 FULL 与 EXTRA 的持久性，配置后需读取实际值并验证。参见[同步配置](https://www.sqlite.org/pragma.html#pragma_synchronous)与[事务原子性](https://www.sqlite.org/atomiccommit.html)。
-
-普通启动用不创建文件的打开模式，显式初始化才创建数据库；管理目录另持有系统排他锁。记录内部状态版本，未知版本按契约拒绝启动。驱动及其配套 modernc.org/libc 版本一并锁定，依据[驱动依赖说明](https://pkg.go.dev/modernc.org/sqlite)。
-
-### Agent 的时钟与执行器
-
-Agent 由本机授权状态、传输循环、独立看门狗和执行器组成。本机收紧先于网络提交；传输恢复只能恢复仍有效的原上下文。测试替身通过测试构造注入，产品入口不增加 fake/full 授权开关。
-
-时钟接口区分 UTC 展示时间与覆盖休眠的经过时间。Go 文档明确指出部分系统的单调时钟在休眠时可能停止，因此不能直接把 time.Since 当作完整租约时钟；平台候选及验证状态见 [2.0 结果](#20-技术验证结果)。timer 只用于唤醒，恢复后重新检查权限。依据见 [Go 时钟说明](https://go.dev/src/time/time.go)与[系统时钟语义](https://man7.org/linux/man-pages/man3/clock_gettime.3.html)。
-
-执行器通过平台文件隔离 Windows Job 与 Linux/macOS 进程组。os/exec 负责启动和管道，但 CommandContext 的默认取消只针对命令进程，完整回收由执行器承担。以[平台执行器约定](contracts/tasks.md#平台执行器约定)为验收边界，参见 [os/exec 取消行为](https://pkg.go.dev/os/exec#CommandContext)。
-
-### MCP SDK 的使用范围
-
-官方 SDK 作为协议适配依赖。2.0 已验证锁定版本可限制支持版本、返回 JSON 并接收原始工具参数；必需的响应补齐见上述验证结果。参见[官方 Go SDK](https://go.sdk.modelcontextprotocol.io/)及[低层 ToolHandler](https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk/mcp#ToolHandler)。
-
-工具输入输出使用契约 Schema，采用 Server.AddTool/ToolHandler 显式校验并构造结果。Remota 管理自己的身份绑定、初始化期限、空闲期限与结束流程；SDK 传输会话和 mcl 投影对应，但不是第二个授权来源。
-
-2.4 将已验证的 SDK 适配接入真实核心，并补齐初始化/空闲期限、管理结束及已受理任务不受 RPC 取消影响的验收。SDK 默认的额外方法或能力由适配层收口，不修改契约或把业务状态迁入 SDK。
-
-### 管理台与资源构建
-
-管理台使用一份同源 fetch 封装处理 Cookie、CSRF、AbortController 和登录代际；刷新行为、秘密清除及语言切换遵循[管理台交互](product/console.md)。不为各页面另建认证缓存。中英文消息先采用类型化字典，组件局部状态保存表单草稿。
-
-开发环境通过 Vite 代理连接后端，并让显式 public_url、Host、Origin 保持一致；保留与生产相同的 CSRF 与身份检查。前端自动重试策略不得覆盖修改请求的结果核对规则。
-
-构建时把权威 Schema 导出为嵌入资源，把管理台静态产物复制到服务端资源目录，再由 Go embed 编译进程序。生成副本只作构建产物，校验与源一致；两个程序共享协议数据与编解码，不共享服务端状态或执行策略。工具定义由同一契约数据构建，RPC 信封实时生成，tools-list.json 用于一致性检查。
-
-## 建议项目结构
-
-以下为产品目标目录，随相应步骤逐步建立；validation 已存在，其独立 Go module 只用于 2.0 验证，产品仍采用根目录单一 module。
-
-```text
-Remota/
-├─ cmd/
-│  ├─ remota-server/          # 服务端入口，组装配置、存储、核心及通道
-│  └─ remota-agent/           # Agent 入口与退出协调
-├─ internal/
-│  ├─ protocol/              # 传输 DTO、严格 codec、Schema 访问
-│  │  └─ schema/             # 构建导出的 Schema 资源
-│  ├─ clock/                 # 真实/平台经过时间；测试时注入时钟
-│  ├─ server/                # 启动、初始化、恢复和服务生命周期
-│  │  ├─ core/               # 会话、任务、凭据生效与快照的一致性边界
-│  │  ├─ httpapi/            # 设备及管理 API，分别组织处理文件
-│  │  ├─ mcp/                # SDK 适配、工具映射与传输绑定
-│  │  ├─ store/              # SQLite 事务、状态版本与目录独占
-│  │  └─ webui/              # 静态资源嵌入；dist 为构建产物
-│  └─ agent/                 # Agent 运行上下文与协作循环
-│     ├─ consent/            # 本机决定、降权与交互输入
-│     ├─ transport/          # 出站 HTTP、poll、epoch 与请求代际
-│     └─ executor/           # 进程、管道、回收；平台文件按 OS 隔离
-├─ web/
-│  ├─ src/
-│  │  ├─ api/                # 管理 API DTO 与 fetch 封装
-│  │  ├─ auth/               # 当前登录代际与敏感状态清除
-│  │  ├─ features/           # 会话、MCP 客户端、凭据页面功能
-│  │  ├─ components/         # 页面确实复用的控件
-│  │  └─ i18n/               # 中英文消息
-│  ├─ package.json
-│  └─ package-lock.json
-├─ tests/
-│  ├─ integration/           # 真实 HTTP、多端时序、网络故障注入
-│  └─ platform/              # 原生 OS 进程与休眠验证
-├─ docs/                     # 已有架构、契约、验收与本规划
-├─ tools/                    # 已有契约校验；后续构建/资源导出入口
-├─ validation/               # 已有独立技术验证：*_test.go、go.mod、go.sum
-├─ go.mod
-└─ go.sum
-```
-
-单元测试与对应 Go/前端模块同目录；跨端测试才进入 tests。测试直接读取现有契约样例并关联用例 ID。core 按业务拆文件，不把每个实体拆成公共包；core 的状态转换不依赖 MCP SDK、SQL 驱动、HTTP 请求或真实子进程。Agent 不导入 server 包。
-
-## 实现顺序与通过条件
-
-按下表的依赖推进。公共消息与基础技术验证通过后可以进入使用可控时钟和受控执行事实的 2.1；平台缺口按对应阶段补齐，未验证项不因此变成平台支持。每步沿用已有验收规则，不以“能启动”替代相应行为验证。
-
-| 顺序 | 实现内容 | 通过条件 |
-|---|---|---|
-| 2.0 技术验证 | 独立探针与依赖基线；状态只在上文验证矩阵维护 | 公共 Schema/原始 JSON、MCP 适配、SQLite/文件锁基础验证通过，可进入 2.1；平台待验证项继续保留 |
-| 2.1 控制核心 | 使用可控时钟和执行事实构建会话、唯一任务/许可、幂等、撤权、结算及清理投影 | D01/D02、V01、B02–B05 的核心部分与近到期注册通过；同截止按统一顺序裁决；交付前通过竞态检测，快照一致且不推断未知退出 |
-| 2.2 启动与管理底座 | 初始化/普通启动/恢复、SQLite、凭据、管理员身份与管理 API | B08、管理消息正反例、Cookie/CSRF、签发结果未知及撤销写失败通过；慢提交不阻塞停止，到期/失败不报告持久成功 |
-| 2.3 只读 Agent | 本机确认、出站通道、poll、租约看门狗、ping/info、降权与结束 | N01 与 L02/B06 的相关部分通过；readonly 不探测约定之外的信息、不创建命令进程 |
-| 2.4 MCP 与任务闭环 | 接上 SDK 适配和八工具，测试中接入受控执行器 | B01、完整消息顺序、错误层次与幂等通过；受理、开始、结果分别可观察，测试替身不进入产品入口 |
-| 2.5 真实平台执行 | 实现进程边界、shell、有限输出、回收事实和独立看门狗 | 对应 OS 原生探针及真实休眠观察先通过，再验收 N02/N03、六类异常和 B02–B07；核对实际 spawn 次数与子进程状态；其他平台可分别推进 |
-| 2.6 管理台 | 登录、快照、备注、凭据、结束操作、中英文与一次性秘密 | 管理台交互规范通过；旧请求不能跨登录更新状态，修改应答丢失先核对；真实浏览器验证 Cookie/CSRF |
-| 2.7 集成与发布 | 平台构建、真实 CLI/HTTP/浏览器联合验收、静态资源嵌入与运行材料 | 全部验收用例闭环，发行包可独立运行，运行时无需 Go、Node 或 Python；明确各平台回收保证 |
-
-2.0 的基础验证不能替代后续状态机或跨端验收。Go 的竞态检测与真实网络测试配合使用；前端使用 [Vitest](https://vitest.dev/guide/)做组件行为验证，[Playwright](https://playwright.dev/docs/intro)验证浏览器完整流程。
-
-## 构建目标与验收材料
-
-Agent 的目标矩阵为 Windows、Linux、macOS 的 amd64/arm64；服务端首批发布以 Linux amd64/arm64 为主，同时保留本机开发测试能力。矩阵属于交付目标，只有对应原生 runner 的进程、计时和打包测试通过后才标记支持；交叉编译成功不等于平台验收通过。
-
-后续 CI 按契约静态校验、Go 单元/集成、前端检查、原生平台测试、发行打包的顺序建立。认证摘要、token、命令和输出不进入构建日志或快照；日志只保留允许的定位元数据。
-
-每步记录通过的用例 ID 与尚未覆盖的真实边界。实施时首先运行现有[最小校验入口](contracts/acceptance/README.md#最小校验入口)，再按当前变更增加必要测试；目录、模型、工具定义与样例共同保持一致。

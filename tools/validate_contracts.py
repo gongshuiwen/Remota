@@ -225,7 +225,7 @@ def main():
                 mcp_result(value, last_tool, label)
             counts["markdown"] += 1
 
-    for path in (root / "docs").rglob("*.md"):
+    for path in [root / "README.md", *sorted((root / "docs").rglob("*.md"))]:
         for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", path.read_text(encoding="utf-8")):
             if re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:", target):
                 continue

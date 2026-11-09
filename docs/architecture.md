@@ -6,6 +6,8 @@
 
 ## 文档边界
 
+项目总入口与推荐阅读路径见[根 README](../README.md)。
+
 本文负责组件划分、状态归属、依赖关系和部署边界。接口、字段、状态机、期限及错误规则以[契约入口](contracts/README.md)及其领域文档为准；页面行为见[管理台交互](product/console.md)。架构摘要不另行定义协议规则。
 
 [关键消息 Schema](contracts/schemas/messages.schema.json)定义消息结构，[验收规格](contracts/acceptance/README.md)把正常流程和异常时序转成可观察结果。Schema 校验通过只证明结构合法，不能证明身份有效、许可仍有效或进程已退出。

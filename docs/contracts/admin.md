@@ -18,17 +18,19 @@ POST /logout 请求体为 {}，成功 204，撤销当前登录、清 Cookie。�
 
 ## 端点目录
 
-| 方法与路径 | 请求 | 成功响应 |
+Schema 名称对应[消息目录](schemas/messages.schema.json)中的同名 $defs；Empty 表示 JSON 空对象，无请求体不等于 Empty。字段细节见相应模型与下文语义。
+
+| 方法与路径 | 请求 Schema | 成功响应（状态、Schema） |
 |---|---|---|
-| POST /login | AdminLoginInput={password} | 200 AdminLoginResponse={csrf_token, expires_at} 与 Cookie |
-| POST /logout | Empty={} | 204，无 JSON 正文 |
+| POST /login | AdminLoginInput | 200 AdminLoginResponse 与 Cookie |
+| POST /logout | Empty | 204，无 JSON 正文 |
 | GET /state | 无请求体 | 200 AdminSnapshot |
 | POST /credentials | CredentialCreate | 201 CredentialIssue；重复签发关联 ID 为 409 |
 | POST /credentials/{cid}/rotate | CredentialRotate | 201 CredentialIssue；重复签发关联 ID 为 409 |
-| POST /credentials/{cid}/revoke | Empty={} | 200 CredentialRevokeResponse={credential, effects, management_revision} |
-| PATCH /sessions/{sid} | NoteInput={note, expected_note_revision} | 200 AdminSessionResponse={session: AdminSession} |
-| POST /sessions/{sid}/end | Empty={} | 200 SessionResponse={session: Session} |
-| POST /clients/{mcl_id}/end | Empty={} | 200 MCPClientEndResponse={client, effects} |
+| POST /credentials/{cid}/revoke | Empty | 200 CredentialRevokeResponse |
+| PATCH /sessions/{sid} | NoteInput | 200 AdminSessionResponse |
+| POST /sessions/{sid}/end | Empty | 200 SessionResponse |
+| POST /clients/{mcl_id}/end | Empty | 200 MCPClientEndResponse |
 
 创建、轮换和撤销必须在持久管理提交完成后才能报告成功。管理端点不接受 Agent、access 或 MCP token。
 

@@ -8,12 +8,12 @@ AI 通过单一 /mcp 入口使用临时设备会话。Remota 使用 JSON-RPC 2.0
 
 ## HTTP 表面
 
-| 方法 | 身份与请求 | 响应 |
-|---|---|---|
-| POST /mcp，initialize | MCP Bearer；application/json；Accept 同时含 application/json、text/event-stream | 200 JSON InitializeResult，返回 MCP-Session-Id |
-| POST /mcp，后续消息 | 同一 Bearer、MCP-Session-Id、MCP-Protocol-Version（协商版本） | RPC 为 200 JSON，已接受通知为 202 无正文 |
-| GET /mcp | 验证身份与传输头后处理 | 405，Allow: POST, DELETE，不提供独立 SSE |
-| DELETE /mcp | 同一 Bearer、会话与版本头，无正文 | 204，失效当前 MCP 客户端 |
+| 方法 | 身份与传输 | 请求 Schema | 响应 |
+|---|---|---|---|
+| POST /mcp，initialize | MCP Bearer；application/json；Accept 同时含 application/json、text/event-stream | MCPInitialize | 200 MCPInitializeResponse，返回 MCP-Session-Id |
+| POST /mcp，后续消息 | 同一 Bearer、MCP-Session-Id、MCP-Protocol-Version（协商版本） | 按[消息模型索引](#消息模型索引)选用 | RPC 为 200 JSON；已接受通知为 202 无正文 |
+| GET /mcp | 验证身份与传输头后处理 | 不适用 | 405，Allow: POST, DELETE，不提供独立 SSE |
+| DELETE /mcp | 同一 Bearer、会话与版本头 | 无请求体 | 204，失效当前 MCP 客户端 |
 
 POST 只接受单个 JSON-RPC 消息，不接受 batch，响应均用 application/json，Accept 仍声明两种类型。体积遵守通用 [容量边界](README.md#容量与数据限制)，并发采用部署默认值；通知不携带 id。
 
@@ -99,20 +99,33 @@ JSON-RPC 请求 id 仅允许字符串或通用安全整数范围内的整数，�
 
 tools/call 外层 arguments 是可选对象。省略时以空对象校验所选工具：list_sessions 可接受，其他工具因缺少业务必填参数失败。null 或非对象为调用外形错误；不得把 arguments 的省略与 null 混为一类。
 
+### 消息模型索引
+
+名称对应[消息目录](schemas/messages.schema.json)中的同名 $defs；该索引不改变下文的校验分层。HTTP 检查错误使用 Error，JSON-RPC 协议错误使用 MCPErrorResponse，状态与适用条件见[错误分层](#错误分层)。
+
+| 方法 | 请求 Schema | 成功响应 Schema 或形式 |
+|---|---|---|
+| initialize | MCPInitialize | MCPInitializeResponse |
+| notifications/initialized | MCPInitialized | 202，无 JSON 正文 |
+| tools/list | MCPToolsListRequest | MCPToolsListResponse |
+| tools/call | MCPToolRequest 为外层；MCPToolCall 校验完整合法调用 | MCPToolResponse；正文再按原工具 outputSchema 校验 |
+| ping | MCPRequest 为基础信封，params 按本节规则 | MCP 标准 result={}；无本地专用响应 Schema |
+| notifications/cancelled | MCP 标准取消通知；无本地专用请求 Schema | 202，无 JSON 正文 |
+
 ## 八个工具
 
-工具 inputSchema 所引用的参数对象定义必须将表中的必填字段列入 required，设置 additionalProperties=false；交付时可通过自包含 $ref 引用该定义。下表 T 表示工具成功数据类型；outputSchema 指向[消息 Schema](schemas/messages.schema.json)中的对应 `$defs`，涵盖成功与业务错误两种正文。
+工具 inputSchema 所引用的参数对象定义必须将表中的必填字段列入 required，设置 additionalProperties=false；交付时可通过自包含 $ref 引用该定义。下表输入列给出参数 Schema 名称与必填项，T 表示工具成功数据类型；outputSchema 指向[消息 Schema](schemas/messages.schema.json)中的对应 `$defs`，涵盖成功与业务错误两种正文。
 
-| 工具 | 必填参数 | 可选参数 | T | outputSchema |
+| 工具 | inputSchema 与必填参数 | 可选参数 | T | outputSchema |
 |---|---|---|---|---|
-| list_sessions | 无，arguments={} | 无 | {sessions: Session[]} | SessionsToolBody |
-| get_session | session_id | 无 | {session: Session} | SessionToolBody |
-| ping_agent | session_id | 无 | 固定 ping 结果 {pong, agent_time} | PingToolBody |
-| get_agent_info | session_id | 无 | 设备通道的 info 结果 | InfoToolBody |
-| request_command | session_id、request_id、command、reason | shell=auto、timeout_seconds（通用默认值） | {accepted: true, reused: boolean, task: TaskMeta} | CommandToolBody |
-| get_task | session_id，以及 task_id/request_id 恰好一个 | 无 | {task: TaskDetail 或 TaskMeta} | TaskToolBody |
-| list_tasks | session_id | 无 | {tasks: TaskMeta[]} | TasksToolBody |
-| cancel_task | session_id、task_id | 无 | {task: TaskMeta} | CancelToolBody |
+| list_sessions | Empty；无必填项，arguments={} | 无 | {sessions: Session[]} | SessionsToolBody |
+| get_session | SessionArguments；session_id | 无 | {session: Session} | SessionToolBody |
+| ping_agent | SessionArguments；session_id | 无 | 固定 ping 结果 {pong, agent_time} | PingToolBody |
+| get_agent_info | SessionArguments；session_id | 无 | 设备通道的 info 结果 | InfoToolBody |
+| request_command | CommandArguments；session_id、request_id、command、reason | shell=auto、timeout_seconds（通用默认值） | {accepted: true, reused: boolean, task: TaskMeta} | CommandToolBody |
+| get_task | TaskQueryArguments；session_id，以及 task_id/request_id 恰好一个 | 无 | {task: TaskDetail 或 TaskMeta} | TaskToolBody |
+| list_tasks | SessionArguments；session_id | 无 | {tasks: TaskMeta[]} | TasksToolBody |
+| cancel_task | CancelArguments；session_id、task_id | 无 | {task: TaskMeta} | CancelToolBody |
 
 request_command 只在入口填充一次默认值后使用 [TaskSpec](tasks.md#共享任务模型)；timeout_seconds 的默认值与范围见 [通用期限表](README.md#时间与期限)。reused=true 表示返回原记录，accepted=true 只表示该意图曾被受理。
 

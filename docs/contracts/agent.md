@@ -47,20 +47,20 @@ pending 不允许读取系统信息或执行命令。readonly 是有效接入模
 
 ## 端点目录
 
-下表均省略前缀 /api/v1/agent。除列出的成功状态外，适用通用错误；特定状态约束见各段。
+下表均省略前缀 /api/v1/agent。Schema 名称对应[消息目录](schemas/messages.schema.json)中的同名 $defs；Empty 表示 JSON 空对象，无请求体不等于 Empty。除列出的成功状态外，适用通用错误；特定状态约束见各段。
 
-| 方法与路径 | 请求 | 成功响应 |
+| 方法与路径 | 请求 Schema | 成功响应（状态、Schema） |
 |---|---|---|
-| POST /sessions | {}，access Bearer | 201 Registration |
-| GET /sessions/{sid} | 无请求体 | 200 {session}，不续租 |
-| PUT /sessions/{sid}/decision | DecisionInput | 200 {session, activation_remaining_ms?} |
-| PUT /sessions/{sid}/consent | ConsentReduction | 200 {session} |
+| POST /sessions | Empty，access Bearer | 201 Registration |
+| GET /sessions/{sid} | 无请求体 | 200 SessionResponse，不续租 |
+| PUT /sessions/{sid}/decision | DecisionInput | 200 DecisionResponse |
+| PUT /sessions/{sid}/consent | ConsentReduction | 200 SessionResponse |
 | POST /sessions/{sid}/poll | PollInput | 200 PollResult |
-| POST /sessions/{sid}/close | CloseInput | 200 {session} |
-| POST /sessions/{sid}/calls/{call_id}/result | CallResultInput | 204 |
-| POST /sessions/{sid}/tasks/{tid}/start | StartInput | 200 {task, grant} |
-| POST /sessions/{sid}/tasks/{tid}/receipts | ReceiptInput | 200 {task}，TaskMeta |
-| POST /sessions/{sid}/tasks/{tid}/result | ResultInput | 200 {task}，TaskMeta |
+| POST /sessions/{sid}/close | CloseInput | 200 SessionResponse |
+| POST /sessions/{sid}/calls/{call_id}/result | CallResultInput | 204，无 JSON 正文 |
+| POST /sessions/{sid}/tasks/{tid}/start | StartInput | 200 StartResponse |
+| POST /sessions/{sid}/tasks/{tid}/receipts | ReceiptInput | 200 TaskResponse，task 为 TaskMeta |
+| POST /sessions/{sid}/tasks/{tid}/result | ResultInput | 200 TaskResponse，task 为 TaskMeta |
 
 不存在替设备提交命令的设备端点，不存在全局“当前设备”。
 
