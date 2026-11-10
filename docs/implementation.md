@@ -1,6 +1,6 @@
 # Remota 第二阶段实施规划
 
-日期 2026年11月9日。本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.1 控制核心结果](#21-控制核心结果)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
+本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.2 启动与管理底座结果](#22-启动与管理底座结果)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
@@ -40,24 +40,25 @@
 
 Go 1.27 已发布新的严格 JSON API；React 官方也提供基于 Vite 的独立应用路径。这里的静态管理台适合该组合，Node 只承担构建和测试。依据见 [Go 1.27](https://go.dev/doc/go1.27)、[React 独立应用](https://react.dev/learn/build-a-react-app-from-scratch)与 [Vite 构建](https://vite.dev/guide/)。
 
-根 [go.mod](../go.mod)已建立 Go 1.27.3 基线，当前控制核心仅使用标准库，不需要 go.sum。外部依赖的验证版本固定在 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)，已验证范围见[技术验证结果](#20-技术验证结果)；后续接入时沿用该基线，新增或升级依赖重新验证。前端版本及 package-lock.json 在 2.6 验证后建立。MCP 协议版本继续固定为契约中的 2025-11-25。
+产品依赖固定在根 [go.mod](../go.mod) 与 [go.sum](../go.sum)，基础探针保留独立的 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)。2.2 沿用已验证的 SQLite、Schema 和系统接口版本，并使用 golang.org/x/net v0.62.0 的 [IDNA Lookup](https://pkg.go.dev/golang.org/x/net@v0.62.0/idna)规范化域名；该版本不受 [GO-2026-5026](https://pkg.go.dev/vuln/GO-2026-5026)影响，同时将间接依赖 x/text 更新至 v0.43.0。新增或升级依赖后重新验证。前端版本及 package-lock.json 在 2.6 验证后建立，MCP 协议版本继续固定为契约中的 2025-11-25。
 
 ## 建议项目结构
 
-以下为产品目标目录，随相应步骤逐步建立；当前已有根 go.mod、internal/clock、internal/server/core 与 validation。validation 的独立 Go module 只用于技术探针，产品采用根目录单一 module；其余目录尚未建立。
+以下为产品目标目录，随相应步骤逐步建立；当前已建立服务端入口、认证、时钟、协议校验、控制核心和存储。validation 的独立 Go module 只用于技术探针，产品采用根目录单一 module。
 
 ```text
 Remota/
 ├─ cmd/
 │  ├─ remota-server/          # 服务端入口，组装配置、存储、核心及通道
 │  └─ remota-agent/           # Agent 入口与退出协调
+├─ schemas.go                 # 直接嵌入权威 Schema
 ├─ internal/
+│  ├─ auth/                  # 秘密生成与摘要
 │  ├─ protocol/              # 传输 DTO、严格 codec、Schema 访问
-│  │  └─ schema/             # 构建导出的 Schema 资源
 │  ├─ clock/                 # 真实/平台经过时间；测试时注入时钟
 │  ├─ server/                # 启动、初始化、恢复和服务生命周期
 │  │  ├─ core/               # 会话、任务、凭据生效与快照的一致性边界
-│  │  ├─ httpapi/            # 设备及管理 API，分别组织处理文件
+│  │  ├─ http.go             # HTTP 路由与管理员 API；设备通道后续接入
 │  │  ├─ mcp/                # SDK 适配、工具映射与传输绑定
 │  │  ├─ store/              # SQLite 事务、状态版本与目录独占
 │  │  └─ webui/              # 静态资源嵌入；dist 为构建产物
@@ -134,7 +135,7 @@ Agent 由本机授权状态、传输循环、独立看门狗和执行器组成�
 
 开发环境通过 Vite 代理连接后端，并让显式 public_url、Host、Origin 保持一致；保留与生产相同的 CSRF 与身份检查。前端自动重试策略不得覆盖修改请求的结果核对规则。
 
-构建时把权威 Schema 导出为嵌入资源，把管理台静态产物复制到服务端资源目录，再由 Go embed 编译进程序。生成副本只作构建产物，校验与源一致；两个程序共享协议数据与编解码，不共享服务端状态或执行策略。工具定义由同一契约数据构建，RPC 信封实时生成，tools-list.json 用于一致性检查。
+服务端通过根目录的 Go embed 直接嵌入权威 Schema，避免维护另一份副本。后续构建再将管理台静态产物嵌入服务端；两个程序共享协议数据与编解码，不共享服务端状态或执行策略。工具定义由同一契约数据构建，RPC 信封实时生成，tools-list.json 用于一致性检查。
 
 ## 构建目标与验收材料
 
@@ -210,7 +211,7 @@ go test -mod=readonly -count=1 -timeout=90s ./...
 
 ## 2.1 控制核心结果
 
-2.1 已完成，可进入 2.2。根模块的 [core](../internal/server/core/core.go)采用单个互斥锁、内存状态和[可注入时钟](../internal/clock/clock.go)，只依赖标准库。每个核心入口用同一时间样本先处理到期条件，再检查权限和状态；等待通过 BeginPoll/CompletePoll/AbortPoll 留在锁外，核心不创建后台循环或执行进程。
+2.1 已完成。根模块的 [core](../internal/server/core/core.go)采用单个互斥锁、内存状态和[可注入时钟](../internal/clock/clock.go)。每个核心入口用同一时间样本先处理到期条件，再检查权限和状态；等待通过 BeginPoll/CompletePoll/AbortPoll 留在锁外，核心不创建后台循环或执行进程。
 
 | 验收目标 | 已验证的核心范围 | 测试入口 |
 |---|---|---|
@@ -229,6 +230,38 @@ go vet ./...
 go test -race -count=1 -timeout=90s ./...
 ```
 
-根模块的 ./... 不包含独立 validation 模块，其[复跑入口](#复跑入口与收口条件)保留。核心类型是进程内模型，不能直接当作 HTTP/MCP DTO；秘密鉴权、Agent 本机授权与首次发送锚点、严格消息适配、真实网络与进程回收均尚未接入。测试的执行事实由受控输入提供，不证明实际 spawn 或 OS 回收。
+根模块的 ./... 不包含独立 validation 模块，其[复跑入口](#复跑入口与收口条件)保留。核心类型是进程内模型，不能直接当作 HTTP/MCP DTO；Agent 本机授权与首次发送锚点、MCP 传输及进程回收仍未接入。核心测试的执行事实由受控输入提供，不证明实际 spawn 或 OS 回收。
 
-下一步为 2.2：接入启动与恢复、SQLite 持久提交、凭据秘密鉴权和管理员 API，保留核心内先收紧权限、锁外提交及失败后 degraded 的边界。
+## 2.2 启动与管理底座结果
+
+服务端入口为 [remota-server](../cmd/remota-server/main.go)。初始化只接受新空目录，一次性交付管理员口令、access 和 MCP 秘密；SQLite 只保存口令与凭据摘要及管理元数据。普通启动要求已有完整状态和目录独占锁，不将缺失、损坏或未知版本当作新部署。管理修改先在核心收紧权限，在锁外完成持久提交，失败或结果未知进入 degraded；本机恢复检查实际状态并收紧未确定的凭据。
+
+管理员登录、Cookie/CSRF、凭据签发/轮换/撤销、快照、备注及结束操作已接入现有 HTTP 契约和 Schema。设备和 MCP 的秘密鉴权已接入核心，其 HTTP/MCP 通道分别在 2.3、2.4 实现；管理台在 2.6 实现。
+
+| 验证范围 | 入口 |
+|---|---|
+| 管理 API、Schema、身份隔离、一次性交付、慢提交、写失败和结果未知 | [HTTP 测试](../internal/server/http_test.go) |
+| SQLite 事务、缺失/损坏状态、真实写满、进程中断与恢复标记 | [存储测试](../internal/server/store/store_test.go) |
+| 一次性交接失败、本机恢复及真实服务进程重启 | [入口测试](../cmd/remota-server/main_test.go)、[进程测试](../cmd/remota-server/main_process_test.go) |
+| 严格 JSON 和共用契约样例 | [协议测试](../internal/protocol/schema_test.go) |
+
+在 Linux 上使用 Go 1.27.3，从仓库根目录初始化并启动：
+
+```text
+go run ./cmd/remota-server init --state-dir ~/.local/state/remota
+go run ./cmd/remota-server serve --state-dir ~/.local/state/remota --listen 127.0.0.1:8080
+```
+
+初始化输出只交付一次，妥善保存秘密且不要写入日志。对外部署时用 `--public-url` 指定 HTTPS 根地址，由外部代理终止 TLS 并保留对应 Host；服务本身只监听回环地址。
+
+服务停止后，可运行 `go run ./cmd/remota-server recover --state-dir ~/.local/state/remota --inspect` 查看不含秘密的持久状态与待恢复操作；使用 `--reset-admin` 重置口令，使用 `--revoke` 指定需撤销的凭据 ID，该参数可重复。恢复会核实并保守撤销未确定操作涉及的凭据；恢复标记损坏时拒绝自动修复。若初始化已提交但秘密交付失败且无恢复标记，重置口令后须核对并撤销不可得的初始凭据，再新建凭据。若写入恢复标记本身失败，操作者仍须核对最后成功提交的状态并完成必要撤销。
+
+本阶段在 WSL Linux amd64 的 Linux 文件系统上运行服务进程和存储测试。Windows 当前以只读目录句柄执行同步，而 [FlushFileBuffers 要求 GENERIC_WRITE](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)，该路径很可能因权限错误拒绝初始化或写入；本环境的应用控制也阻止原生测试程序运行，目前请使用 WSL/Linux。macOS 原生目录同步和持久性尚未验证，交叉编译不等于平台通过。真实系统休眠、Agent、MCP 和浏览器端到端验收仍在后续阶段。
+
+在有 C 编译器的 Linux 测试环境从仓库根目录运行，竞态检测设置 `CGO_ENABLED=1`：
+
+```text
+go mod verify
+go vet ./...
+go test -race -count=1 -timeout=120s ./...
+```

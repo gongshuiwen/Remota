@@ -41,7 +41,7 @@ func TestActivationAndClientLifecycle(t *testing.T) {
 	})
 	t.Run("init_timeout_is_not_idle_timeout", func(t *testing.T) {
 		h := newHarness(t, 0, 0)
-		cl, err := h.c.BeginClient(h.credential)
+		cl, err := h.c.BeginClient(h.credential, ClientInfo{Name: "test", Version: "1"})
 		must(t, err)
 		if !cl.LastSeenAt.Equal(cl.CreatedAt) || !cl.ExpiresAt.Equal(cl.CreatedAt.Add(30*time.Second)) {
 			t.Fatalf("invalid initializing timestamps: %+v", cl)
@@ -143,9 +143,8 @@ func TestReadOnlyMCPAuthorityAndReceiptRecovery(t *testing.T) {
 	h.activate(t, "full")
 	task := h.submit(t, 1)
 	g := h.grant(t, task)
-	readCredential := "crd_" + strings.Repeat("e", 32)
-	must(t, h.c.LoadCredential(Credential{ID: readCredential, Kind: "mcp", ExpiresAt: h.f.now().Wall.Add(time.Hour)}))
-	cl, err := h.c.BeginClient(readCredential)
+	readCredential := h.issueCredential(t, "mcp", false, time.Hour)
+	cl, err := h.c.BeginClient(readCredential, ClientInfo{Name: "test", Version: "1"})
 	must(t, err)
 	_, err = h.c.ClientMessage(readCredential, cl.ID, true)
 	must(t, err)

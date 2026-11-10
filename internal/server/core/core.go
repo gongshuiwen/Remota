@@ -1,11 +1,10 @@
 package core
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"sync"
 	"time"
 
+	"remota.local/remota/internal/auth"
 	"remota.local/remota/internal/clock"
 )
 
@@ -53,6 +52,7 @@ type credentialState struct {
 	Credential
 	expires deadline
 	expired bool
+	blocked bool
 }
 
 type clientState struct {
@@ -85,14 +85,19 @@ type taskState struct {
 }
 
 type Core struct {
-	mu            sync.Mutex
-	clock         clock.Source
-	last          clock.Sample
-	status, epoch string
-	ttl           time.Duration
-	credentials   map[string]*credentialState
-	clients       map[string]*clientState
-	sessions      map[string]*sessionState
+	mu                 sync.Mutex
+	clock              clock.Source
+	last               clock.Sample
+	status, epoch      string
+	ttl                time.Duration
+	credentials        map[string]*credentialState
+	clients            map[string]*clientState
+	sessions           map[string]*sessionState
+	digests            map[[32]byte]string
+	admins             map[[32]byte]*adminSession
+	operations         map[string]string
+	managementRevision int64
+	pending            *CredentialChange
 }
 
 // New requires an elapsed clock supplied by the application. No wall-clock-only
@@ -115,18 +120,12 @@ func New(source clock.Source, ttl time.Duration) (*Core, error) {
 	n.Elapsed = n.Elapsed.Truncate(time.Millisecond)
 	return &Core{clock: source, last: n, status: "ready", epoch: newID(""), ttl: ttl,
 		credentials: make(map[string]*credentialState), clients: make(map[string]*clientState),
-		sessions: make(map[string]*sessionState)}, nil
+		sessions: make(map[string]*sessionState), digests: make(map[[32]byte]string),
+		admins: make(map[[32]byte]*adminSession), operations: make(map[string]string)}, nil
 }
 
 func newID(prefix string) string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic("core: random source unavailable")
-	}
-	if prefix != "" {
-		prefix += "_"
-	}
-	return prefix + hex.EncodeToString(b[:])
+	return auth.ID(prefix)
 }
 
 func (c *Core) writable() error {
@@ -147,12 +146,18 @@ func (c *Core) tick() clock.Sample {
 	if n.Wall.IsZero() || n.Elapsed < c.last.Elapsed {
 		n = c.last
 		c.halt("degraded", "server_degraded", n)
+		clear(c.admins)
 	}
 	// Protocol timestamps and budgets use a single millisecond-resolution sample.
 	n.Wall = n.Wall.UTC().Truncate(time.Millisecond)
 	n.Elapsed = n.Elapsed.Truncate(time.Millisecond)
 	c.last = n
 	c.expire(n)
+	for digest, a := range c.admins {
+		if a.expires.due(n) {
+			delete(c.admins, digest)
+		}
+	}
 	for id, s := range c.sessions {
 		if s.State == "ended" && s.retain.due(n) {
 			delete(c.sessions, id)
@@ -172,52 +177,12 @@ func (c *Core) Sweep() {
 	c.tick()
 }
 
-// LoadCredential accepts confirmed durable metadata only; it neither issues
-// secrets nor reports a persistent commit. Updating authority uses revocation.
-func (c *Core) LoadCredential(v Credential) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	n := c.tick()
-	if err := c.writable(); err != nil {
-		return err
-	}
-	if !validID(v.ID, "crd") || (v.Kind != "access" && v.Kind != "mcp") || v.ExpiresAt.IsZero() ||
-		(v.Kind == "access" && v.AllowExec) {
-		return InvalidArgument
-	}
-	if _, ok := c.credentials[v.ID]; ok {
-		return InvalidState
-	}
-	if len(c.credentials) >= 4096 {
-		return CapacityExceeded
-	}
-	v.ExpiresAt = v.ExpiresAt.UTC().Truncate(time.Millisecond)
-	c.credentials[v.ID] = &credentialState{Credential: v, expires: after(n, v.ExpiresAt.Sub(n.Wall)),
-		expired: !n.Wall.Before(v.ExpiresAt)}
-	return nil
-}
-
 func (c *Core) credential(id, kind string) (*credentialState, error) {
 	v := c.credentials[id]
-	if v == nil || v.Kind != kind || v.Revoked || v.expired {
+	if v == nil || v.Kind != kind || v.Revoked || v.expired || v.blocked {
 		return nil, Unauthenticated
 	}
 	return v, nil
-}
-
-// RevokeCredential immediately tightens memory authority. Persistence and its
-// success response belong to the storage coordinator in phase 2.2.
-func (c *Core) RevokeCredential(id string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	n := c.tick()
-	v := c.credentials[id]
-	if v == nil {
-		return NotFound
-	}
-	v.Revoked = true
-	c.invalidateCredential(v, n)
-	return nil
 }
 
 func (c *Core) invalidateCredential(v *credentialState, n clock.Sample) {

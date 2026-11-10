@@ -128,10 +128,10 @@ func TestDeadlineOrderAndFirstCause(t *testing.T) {
 	})
 	t.Run("credential_and_client_expiry", func(t *testing.T) {
 		h := newHarness(t, 0, 0)
+		id := h.issueCredential(t, "mcp", true, time.Minute)
+		h.f.step(50 * time.Second)
 		h.activate(t, "full")
-		id := "crd_" + strings.Repeat("d", 32)
-		must(t, h.c.LoadCredential(Credential{ID: id, Kind: "mcp", AllowExec: true, ExpiresAt: h.f.now().Wall.Add(10 * time.Second)}))
-		cl, err := h.c.BeginClient(id)
+		cl, err := h.c.BeginClient(id, ClientInfo{Name: "test", Version: "1"})
 		must(t, err)
 		_, err = h.c.ClientMessage(id, cl.ID, true)
 		must(t, err)
@@ -203,6 +203,8 @@ func TestClockRollbackForwardAndSuspend(t *testing.T) {
 	t.Run("elapsed_clock_regression_fails_closed", func(t *testing.T) {
 		h := newHarness(t, 0, 0)
 		h.activate(t, "full")
+		admin, err := h.c.Login("")
+		must(t, err)
 		h.f.step(time.Second)
 		h.c.Sweep()
 		h.f.advance(0, -time.Second)
@@ -210,6 +212,8 @@ func TestClockRollbackForwardAndSuspend(t *testing.T) {
 		if s.Status != "degraded" || s.Sessions[0].State != "ended" {
 			t.Fatalf("%+v", s)
 		}
+		_, _, err = h.c.AdminState(admin.Token)
+		wantCode(t, err, Unauthenticated)
 	})
 }
 
@@ -332,7 +336,7 @@ func TestReductionClientEndDegradedAndRetention(t *testing.T) {
 		task := h.submit(t, 1)
 		_, err := h.c.EndClient(h.client, "client_delete")
 		must(t, err)
-		cl, err := h.c.BeginClient(h.credential)
+		cl, err := h.c.BeginClient(h.credential, ClientInfo{Name: "test", Version: "1"})
 		must(t, err)
 		_, err = h.c.ClientMessage(h.credential, cl.ID, true)
 		must(t, err)
@@ -476,7 +480,7 @@ func TestConcurrentRevokeAndStart(t *testing.T) {
 		go func() { defer wg.Done(); _, _, startErr = h.c.Start(h.sid, task.ID, 1) }()
 		go func() {
 			defer wg.Done()
-			if err := h.c.RevokeCredential(h.access); err != nil {
+			if err := h.revokeCredential(h.access); err != nil {
 				t.Error(err)
 			}
 		}()

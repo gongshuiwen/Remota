@@ -130,6 +130,7 @@ func (c *Core) endSession(s *sessionState, reason, stopReason string, n clock.Sa
 		return
 	}
 	s.State, s.EndReason, s.EndedAt = "ended", reason, ptr(n.Wall)
+	s.Note = ""
 	s.retain = after(n, retention)
 	s.endEvent = &Event{ID: newID("evt"), Type: "session.end", SessionID: s.ID,
 		CreatedAt: n.Wall, Reason: reason, EndedAt: ptr(n.Wall)}
@@ -148,6 +149,7 @@ func sessionView(s *sessionState, n clock.Sample) Session {
 	v := s.Session
 	v.Consent, v.EndedAt = copyPtr(v.Consent), copyPtr(v.EndedAt)
 	v.Capabilities = []string{}
+	v.AccessCredentialID = s.accessID
 	if s.State != "ended" {
 		v.RemainingMS = s.expires.remaining(n)
 	}
@@ -211,7 +213,7 @@ func (c *Core) GetSession(sid string) (Session, error) {
 	return sessionView(s, n), nil
 }
 
-func (c *Core) BeginClient(credentialID string) (Client, error) {
+func (c *Core) BeginClient(credentialID string, info ClientInfo) (Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	n := c.tick()
@@ -221,6 +223,9 @@ func (c *Core) BeginClient(credentialID string) (Client, error) {
 	}
 	if err = c.writable(); err != nil {
 		return Client{}, err
+	}
+	if !validText(info.Name, 1, 80) || !validText(info.Version, 1, 40) {
+		return Client{}, InvalidArgument
 	}
 	count := 0
 	for _, cl := range c.clients {
@@ -232,7 +237,7 @@ func (c *Core) BeginClient(credentialID string) (Client, error) {
 		return Client{}, CapacityExceeded
 	}
 	d := earlier(after(n, initWait), v.expires)
-	cl := &clientState{Client: Client{ID: newID("mcl"), CredentialID: credentialID, Lifecycle: "initializing",
+	cl := &clientState{Client: Client{ID: newID("mcl"), CredentialID: credentialID, Lifecycle: "initializing", Info: info,
 		CreatedAt: n.Wall}, expires: d, lastSeen: n}
 	c.clients[cl.ID] = cl
 	return clientView(cl, n), nil
@@ -326,25 +331,41 @@ func (c *Core) Snapshot() Snapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	n := c.tick()
-	v := Snapshot{Status: c.status, Epoch: c.epoch, Sessions: []Session{}, Clients: []Client{}, Tasks: []Task{}}
+	return c.snapshot(n, true)
+}
+
+func (c *Core) snapshot(n clock.Sample, includeTasks bool) Snapshot {
+	v := Snapshot{Status: c.status, Epoch: c.epoch, Time: n.Wall, ManagementRevision: c.managementRevision,
+		Sessions: []Session{}, Clients: []Client{}, Tasks: []Task{}, Credentials: []Credential{}}
 	for _, s := range c.sessions {
 		v.Sessions = append(v.Sessions, sessionView(s, n))
-		for _, task := range s.tasks {
-			v.Tasks = append(v.Tasks, taskView(task, false))
+		if includeTasks {
+			for _, task := range s.tasks {
+				v.Tasks = append(v.Tasks, taskView(task, false))
+			}
 		}
 	}
 	for _, client := range c.clients {
 		v.Clients = append(v.Clients, clientView(client, n))
 	}
+	counts := c.countsByCredential()
+	for _, credential := range c.credentials {
+		v.Credentials = append(v.Credentials, c.credentialView(credential, counts[credential.ID]))
+	}
+	sort.Slice(v.Credentials, func(i, j int) bool {
+		return before(v.Credentials[i].CreatedAt, v.Credentials[i].ID, v.Credentials[j].CreatedAt, v.Credentials[j].ID)
+	})
 	sort.Slice(v.Sessions, func(i, j int) bool {
 		return before(v.Sessions[i].CreatedAt, v.Sessions[i].ID, v.Sessions[j].CreatedAt, v.Sessions[j].ID)
 	})
 	sort.Slice(v.Clients, func(i, j int) bool {
 		return before(v.Clients[i].CreatedAt, v.Clients[i].ID, v.Clients[j].CreatedAt, v.Clients[j].ID)
 	})
-	sort.Slice(v.Tasks, func(i, j int) bool {
-		return before(v.Tasks[i].CreatedAt, v.Tasks[i].ID, v.Tasks[j].CreatedAt, v.Tasks[j].ID)
-	})
+	if includeTasks {
+		sort.Slice(v.Tasks, func(i, j int) bool {
+			return before(v.Tasks[i].CreatedAt, v.Tasks[i].ID, v.Tasks[j].CreatedAt, v.Tasks[j].ID)
+		})
+	}
 	return v
 }
 

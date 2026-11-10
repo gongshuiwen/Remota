@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"remota.local/remota/internal/auth"
 	"remota.local/remota/internal/clock"
 )
 
@@ -104,9 +105,20 @@ func newHarness(t *testing.T, ttl, accessLifetime time.Duration) *harness {
 	if accessLifetime == 0 {
 		accessLifetime = 24 * time.Hour
 	}
-	must(t, c.LoadCredential(Credential{ID: h.access, Kind: "access", ExpiresAt: f.now().Wall.Add(accessLifetime)}))
-	must(t, c.LoadCredential(Credential{ID: h.credential, Kind: "mcp", AllowExec: true, ExpiresAt: f.now().Wall.Add(24 * time.Hour)}))
-	cl, err := c.BeginClient(h.credential)
+	now := f.now().Wall
+	accessSecret, mcpSecret := auth.Secret("rm_access_"), auth.Secret("rm_mcp_")
+	must(t, c.InstallManagement(1, []CredentialRecord{
+		{Credential: Credential{ID: h.access, Kind: "access", Name: "access", CreatedAt: now.Add(-time.Minute), ExpiresAt: now.Add(accessLifetime), CreationOperationID: strings.Repeat("a", 32)}, Digest: auth.Digest(accessSecret)},
+		{Credential: Credential{ID: h.credential, Kind: "mcp", Name: "mcp", AllowExec: true, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour), CreationOperationID: strings.Repeat("b", 32)}, Digest: auth.Digest(mcpSecret)},
+	}))
+	for _, item := range []struct{ secret, kind, id string }{{accessSecret, "access", h.access}, {mcpSecret, "mcp", h.credential}} {
+		id, err := c.AuthenticateCredential(item.secret, item.kind)
+		must(t, err)
+		if id != item.id {
+			t.Fatal("fixture credential identity differs")
+		}
+	}
+	cl, err := c.BeginClient(h.credential, ClientInfo{Name: "test", Version: "1"})
 	must(t, err)
 	h.client = cl.ID
 	_, err = c.ClientMessage(h.credential, h.client, true)
@@ -126,6 +138,38 @@ func newHarness(t *testing.T, ttl, accessLifetime time.Duration) *harness {
 	x := sample.Grant.Spec
 	h.spec = Spec{x.Command, x.Reason, x.Shell, x.Timeout}
 	return h
+}
+
+func (h *harness) issueCredential(t *testing.T, kind string, allowExec bool, lifetime time.Duration) string {
+	t.Helper()
+	a, err := h.c.Login("")
+	must(t, err)
+	change, err := h.c.PrepareCredential(a.Token, a.CSRF, "create", "", CredentialInput{
+		OperationID: auth.ID(""), Kind: kind, Name: "test", AllowExec: allowExec, ExpiresInSeconds: int64(lifetime / time.Second),
+	})
+	must(t, err)
+	secret := auth.Secret("rm_" + kind + "_")
+	v, _, err := h.c.CompleteCredential(change, auth.Digest(secret))
+	must(t, err)
+	id, err := h.c.AuthenticateCredential(secret, kind)
+	must(t, err)
+	if id != v.ID {
+		t.Fatal("issued credential identity differs")
+	}
+	return id
+}
+
+func (h *harness) revokeCredential(id string) error {
+	a, err := h.c.Login("")
+	if err != nil {
+		return err
+	}
+	change, err := h.c.PrepareCredential(a.Token, a.CSRF, "revoke", id, CredentialInput{})
+	if err != nil {
+		return err
+	}
+	_, _, err = h.c.CompleteCredential(change, [32]byte{})
+	return err
 }
 
 func (h *harness) activate(t *testing.T, mode string) {
@@ -205,9 +249,8 @@ func TestIntentIdempotenceAndAuthority(t *testing.T) {
 		_, _, err := h.c.Submit(h.credential, h.client, h.sid, first.RequestID, s)
 		wantCode(t, err, IdempotencyConflict)
 	}
-	other := "crd_" + strings.Repeat("c", 32)
-	must(t, h.c.LoadCredential(Credential{ID: other, Kind: "mcp", AllowExec: true, ExpiresAt: h.f.now().Wall.Add(time.Hour)}))
-	cl, err := h.c.BeginClient(other)
+	other := h.issueCredential(t, "mcp", true, time.Hour)
+	cl, err := h.c.BeginClient(other, ClientInfo{Name: "test", Version: "1"})
 	must(t, err)
 	_, err = h.c.ClientMessage(other, cl.ID, true)
 	must(t, err)
@@ -398,7 +441,7 @@ func TestRevocationUnknownAndLateEvidence(t *testing.T) {
 		h := newHarness(t, 0, 0)
 		h.activate(t, "full")
 		task := h.submit(t, 1)
-		must(t, h.c.RevokeCredential(h.access))
+		must(t, h.revokeCredential(h.access))
 		_, _, err := h.c.Start(h.sid, task.ID, 1)
 		wantCode(t, err, SessionEnded)
 		expectedTask(t, h.get(t, task), "task.revoked_before_grant")
@@ -450,7 +493,7 @@ func TestRevocationUnknownAndLateEvidence(t *testing.T) {
 		task := h.submit(t, 1)
 		g := h.grant(t, task)
 		h.started(t, task, g)
-		must(t, h.c.RevokeCredential(h.access))
+		must(t, h.revokeCredential(h.access))
 		h.f.step(5 * time.Second)
 		v := h.get(t, task)
 		expectedTask(t, v, "task.race.unknown")

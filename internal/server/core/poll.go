@@ -25,7 +25,7 @@ func (c *Core) BeginPoll(sid string, revision int64, acknowledgements []string) 
 	}
 	seen := make(map[string]bool, len(acknowledgements))
 	for _, id := range acknowledgements {
-		if !validID(id, "evt") || seen[id] {
+		if !ValidID(id, "evt") || seen[id] {
 			return nil, InvalidArgument
 		}
 		seen[id] = true

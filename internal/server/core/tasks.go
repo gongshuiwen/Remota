@@ -8,7 +8,7 @@ import (
 	"remota.local/remota/internal/clock"
 )
 
-func validID(s, prefix string) bool {
+func ValidID(s, prefix string) bool {
 	if prefix != "" {
 		prefix += "_"
 	}
@@ -103,7 +103,7 @@ func (c *Core) Submit(credentialID, clientID, sid, requestID string, spec Spec) 
 	if err = c.executionGate(s, revision); err != nil {
 		return Task{}, false, err
 	}
-	if !validID(requestID, "") || !validSpec(spec) {
+	if !ValidID(requestID, "") || !validSpec(spec) {
 		return Task{}, false, InvalidArgument
 	}
 	if id, ok := s.requests[requestID]; ok {

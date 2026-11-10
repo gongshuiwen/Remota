@@ -5,6 +5,13 @@ package core
 
 import "time"
 
+const (
+	MaxCredentialRecords      = 4096
+	MinCredentialLifetime     = time.Minute
+	MaxCredentialLifetime     = 365 * 24 * time.Hour
+	DefaultCredentialLifetime = 90 * 24 * time.Hour
+)
+
 // Code is a contract error without input, secrets or underlying system errors.
 type Code string
 
@@ -32,22 +39,46 @@ const (
 	AgentUnavailable    Code = "AGENT_UNAVAILABLE"
 	StateUnavailable    Code = "STATE_UNAVAILABLE"
 	ServerStopping      Code = "SERVER_STOPPING"
+	CredentialRevoked   Code = "CREDENTIAL_REVOKED"
+	OperationExists     Code = "CREDENTIAL_OPERATION_EXISTS"
+	CredentialLimit     Code = "CREDENTIAL_LIMIT"
+	CSRFInvalid         Code = "CSRF_INVALID"
 )
 
 // These are domain values, not wire DTOs. Transport adapters own JSON field
 // names, fixed-millisecond timestamps, authentication tokens and response shapes.
 type Credential struct {
-	ID, Kind  string // access or mcp
-	AllowExec bool
-	ExpiresAt time.Time
-	Revoked   bool
+	ID, Kind                                 string // access or mcp
+	AllowExec                                bool
+	ExpiresAt                                time.Time
+	Revoked                                  bool
+	Name, CreationOperationID, RotatedFromID string
+	CreatedAt                                time.Time
+	RevokedAt                                *time.Time
+	Status                                   string
+	EffectsCount                             Counts
+	RemainingMS                              int64
 }
+
+type CredentialRecord struct {
+	Credential Credential
+	Digest     [32]byte
+}
+type Counts struct{ LiveSessions, LiveClients, UnsettledTasks int }
+type Effects struct{ SessionsEnded, ClientsEnded, TasksStopRequested int }
+type Failure struct {
+	Code
+	CurrentRevision *int64
+	ResourceID      string
+}
+type ClientInfo struct{ Name, Version string }
 
 type Client struct {
 	ID, CredentialID, Lifecycle, Activity string
 	CreatedAt, LastSeenAt, ExpiresAt      time.Time
 	EndedAt                               *time.Time
 	EndReason                             string
+	Info                                  ClientInfo
 }
 
 type Consent struct {
@@ -67,6 +98,8 @@ type Session struct {
 	EndReason, Cleanup                     string
 	// Budgets are internal projections for transport response construction.
 	RemainingMS, DecisionRemainingMS, ActivationRemainingMS int64
+	AccessCredentialID, Note                                string
+	NoteRevision                                            int64
 }
 
 type Lease struct {
@@ -153,8 +186,11 @@ type PollResult struct {
 // Snapshot is an internal coherent projection, not the admin HTTP response.
 // Tasks contain metadata only. An adapter may form narrower authenticated views.
 type Snapshot struct {
-	Status, Epoch string
-	Sessions      []Session
-	Clients       []Client
-	Tasks         []Task
+	Status, Epoch      string
+	Sessions           []Session
+	Clients            []Client
+	Tasks              []Task
+	Credentials        []Credential
+	Time               time.Time
+	ManagementRevision int64
 }

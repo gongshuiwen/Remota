@@ -11,7 +11,7 @@ func sameReceipt(a, b Receipt) bool {
 }
 
 func validReceipt(r Receipt) bool {
-	if r.GrantID != "" && !validID(r.GrantID, "grt") || !validExit(r.ExitCode) {
+	if r.GrantID != "" && !ValidID(r.GrantID, "grt") || !validExit(r.ExitCode) {
 		return false
 	}
 	switch r.Kind {
@@ -112,7 +112,7 @@ func validOutput(o Output) bool {
 }
 
 func validResult(r Result) bool {
-	if !validID(r.GrantID, "grt") || r.ConsentRevision < 1 || r.ConsentRevision > 9007199254740991 ||
+	if !ValidID(r.GrantID, "grt") || r.ConsentRevision < 1 || r.ConsentRevision > 9007199254740991 ||
 		!validExit(r.ExitCode) || !validOutput(r.Stdout) || !validOutput(r.Stderr) {
 		return false
 	}
