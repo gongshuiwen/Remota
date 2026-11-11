@@ -156,6 +156,47 @@ func TestReadonlyAgentDiagnosticAndLostReply(t *testing.T) {
 	if err != nil || pingResult.Result == nil || !pingResult.Result.Pong || probes.Load() != 1 {
 		t.Fatalf("unexpected ping result: %v", err)
 	}
+	// Exercise the actual MCP transport against this running read-only Agent.
+	mcpPost := func(session, body string) (int, http.Header, map[string]any) {
+		t.Helper()
+		req, err := http.NewRequest("POST", web.URL+"/mcp", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+handoff.MCP)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		if session != "" {
+			req.Header.Set("Mcp-Session-Id", session)
+			req.Header.Set("MCP-Protocol-Version", "2025-11-25")
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var value map[string]any
+		if resp.StatusCode != 202 {
+			if err = json.UnmarshalRead(resp.Body, &value); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return resp.StatusCode, resp.Header, value
+	}
+	status, headers, _ := mcpPost("", `{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}`)
+	transportID := headers.Get("Mcp-Session-Id")
+	if status != 200 || transportID == "" {
+		t.Fatal("MCP initialization failed")
+	}
+	status, _, _ = mcpPost(transportID, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	if status != 202 {
+		t.Fatal("MCP initialization notification failed")
+	}
+	status, _, value := mcpPost(transportID, `{"jsonrpc":"2.0","id":"ping","method":"tools/call","params":{"name":"ping_agent","arguments":{"session_id":"`+sid+`"}}}`)
+	if status != 200 || value["result"].(map[string]any)["structuredContent"].(map[string]any)["data"].(map[string]any)["pong"] != true {
+		t.Fatal("MCP ping did not reach the read-only Agent")
+	}
 	_, _, err = service.Core.Submit(credential, client.ID, sid, strings.Repeat("1", 32), core.Spec{Command: "echo denied", Reason: "test", Shell: "sh", TimeoutSeconds: 10})
 	if err != core.ConsentRequired {
 		t.Fatalf("read-only session accepted command: %v", err)

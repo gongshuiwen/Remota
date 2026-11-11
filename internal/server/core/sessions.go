@@ -273,19 +273,63 @@ func (c *Core) BeginClient(credentialID string, info ClientInfo) (Client, error)
 	return clientView(cl, n), nil
 }
 
+// ClientStatus checks the binding without extending the initialization deadline.
+func (c *Core) ClientStatus(credentialID, clientID string) (Client, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := c.tick()
+	_, cl, err := c.boundClient(credentialID, clientID)
+	if err != nil {
+		return Client{}, err
+	}
+	if err := c.writable(); err != nil {
+		return Client{}, err
+	}
+	return clientView(cl, n), nil
+}
+
+func (c *Core) ListSessions(credentialID, clientID string) ([]Session, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := c.tick()
+	if _, err := c.client(credentialID, clientID); err != nil {
+		return nil, err
+	}
+	values := []Session{}
+	for _, s := range c.sessions {
+		if s.State != "ended" {
+			values = append(values, sessionView(s, n))
+		}
+	}
+	sort.Slice(values, func(i, j int) bool {
+		return before(values[i].CreatedAt, values[i].ID, values[j].CreatedAt, values[j].ID)
+	})
+	return values, nil
+}
+
+func (c *Core) ClientSession(credentialID, clientID, sid string) (Session, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := c.tick()
+	if _, err := c.client(credentialID, clientID); err != nil {
+		return Session{}, err
+	}
+	s := c.sessions[sid]
+	if s == nil {
+		return Session{}, NotFound
+	}
+	return sessionView(s, n), nil
+}
+
 // ClientMessage is called for each authenticated, bound MCP message. initialized
 // is true only for notifications/initialized; other messages need a ready client.
 func (c *Core) ClientMessage(credentialID, clientID string, initialized bool) (Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	n := c.tick()
-	v, err := c.credential(credentialID, "mcp")
+	v, cl, err := c.boundClient(credentialID, clientID)
 	if err != nil {
 		return Client{}, err
-	}
-	cl := c.clients[clientID]
-	if cl == nil || cl.CredentialID != credentialID || cl.Lifecycle == "ended" {
-		return Client{}, ClientNotFound
 	}
 	if cl.Lifecycle == "initializing" && !initialized {
 		return Client{}, InvalidState
@@ -298,14 +342,22 @@ func (c *Core) ClientMessage(credentialID, clientID string, initialized bool) (C
 	return clientView(cl, n), nil
 }
 
-func (c *Core) client(credentialID, clientID string) (*credentialState, error) {
+func (c *Core) boundClient(credentialID, clientID string) (*credentialState, *clientState, error) {
 	v, err := c.credential(credentialID, "mcp")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cl := c.clients[clientID]
 	if cl == nil || cl.CredentialID != credentialID || cl.Lifecycle == "ended" {
-		return nil, ClientNotFound
+		return nil, nil, ClientNotFound
+	}
+	return v, cl, nil
+}
+
+func (c *Core) client(credentialID, clientID string) (*credentialState, error) {
+	v, cl, err := c.boundClient(credentialID, clientID)
+	if err != nil {
+		return nil, err
 	}
 	if cl.Lifecycle != "ready" {
 		return nil, InvalidState
@@ -335,6 +387,12 @@ func (c *Core) endClient(cl *clientState, reason, stopReason string, n clock.Sam
 	cl.Lifecycle, cl.EndReason, cl.EndedAt = "ended", reason, ptr(n.Wall)
 	cl.retain = after(n, retention)
 	for _, s := range c.sessions {
+		for id, call := range s.calls {
+			if call.clientID == cl.ID {
+				finishCall(call)
+				delete(s.calls, id)
+			}
+		}
 		for _, t := range s.tasks {
 			if t.ClientID == cl.ID {
 				c.stopTask(t, stopReason, n)
@@ -362,6 +420,20 @@ func (c *Core) Snapshot() Snapshot {
 	defer c.mu.Unlock()
 	n := c.tick()
 	return c.snapshot(n, true)
+}
+
+// LiveClientIDs is the narrow projection used to retire transport sessions.
+func (c *Core) LiveClientIDs() map[string]bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tick()
+	ids := make(map[string]bool)
+	for id, cl := range c.clients {
+		if cl.Lifecycle != "ended" {
+			ids[id] = true
+		}
+	}
+	return ids
 }
 
 func (c *Core) snapshot(n clock.Sample, includeTasks bool) Snapshot {

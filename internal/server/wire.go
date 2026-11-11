@@ -60,6 +60,58 @@ func client(v core.Client) object {
 	return r
 }
 
+func spec(v core.Spec) object {
+	return object{"command": v.Command, "reason": v.Reason, "shell": v.Shell, "timeout_seconds": v.TimeoutSeconds}
+}
+
+func output(v core.Output) object {
+	return object{"text": v.Text, "captured_bytes": v.CapturedBytes, "truncated": v.Truncated}
+}
+
+func task(v core.Task) object {
+	execution := object{"state": v.Execution.State}
+	if v.Execution.StartObservedAt != nil {
+		execution["start_observed_at"] = timestamp(*v.Execution.StartObservedAt)
+	}
+	if v.Execution.ExitObservedAt != nil {
+		execution["exit_observed_at"] = timestamp(*v.Execution.ExitObservedAt)
+	}
+	if v.Execution.ExitCode != nil {
+		execution["exit_code"] = *v.Execution.ExitCode
+	}
+	r := object{"id": v.ID, "session_id": v.SessionID, "request_id": v.RequestID, "phase": v.Phase,
+		"consent_revision": v.ConsentRevision, "created_at": timestamp(v.CreatedAt), "offer_deadline": timestamp(v.OfferDeadline),
+		"initiator": object{"credential_id": v.CredentialID, "mcp_client_id": v.ClientID}, "execution": execution, "details_available": v.DetailsAvailable}
+	if v.ExecutionDeadline != nil {
+		r["execution_deadline"] = timestamp(*v.ExecutionDeadline)
+	}
+	if v.SettledAt != nil {
+		r["settled_at"] = timestamp(*v.SettledAt)
+	}
+	if v.Outcome != "" {
+		r["outcome"] = v.Outcome
+	}
+	if v.Stop != nil {
+		r["stop"] = object{"reason": v.Stop.Reason, "requested_at": timestamp(v.Stop.RequestedAt), "confirmation_deadline": timestamp(v.Stop.ConfirmationDeadline)}
+	}
+	if v.ErrorCode != "" {
+		r["error_code"] = v.ErrorCode
+	}
+	if v.Spec != nil {
+		r["spec"] = spec(*v.Spec)
+	}
+	if v.Result != nil {
+		r["result"] = object{"stdout": output(v.Result.Stdout), "stderr": output(v.Result.Stderr)}
+	}
+	return r
+}
+
+func grant(v core.Grant) object {
+	return object{"id": v.ID, "session_id": v.SessionID, "task_id": v.TaskID, "consent_revision": v.ConsentRevision,
+		"spec": spec(v.Spec), "issued_at": timestamp(v.IssuedAt), "execute_before": timestamp(v.ExecuteBefore),
+		"execution_deadline": timestamp(v.ExecutionDeadline), "start_window_ms": v.StartWindowMS, "execution_budget_ms": v.ExecutionBudgetMS}
+}
+
 func (s *Server) snapshot(v core.Snapshot, a core.AdminLogin) object {
 	server := object{"version": Version, "server_epoch": v.Epoch, "health": v.Status, "management_revision": v.ManagementRevision}
 	if v.Status == "shutting_down" {

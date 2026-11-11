@@ -1,6 +1,7 @@
 package core
 
 import (
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -198,6 +199,27 @@ func (c *Core) GetTask(credentialID, clientID, sid, taskID, requestID string) (T
 		return Task{}, TaskNotFound
 	}
 	return taskView(t, true), nil
+}
+
+func (c *Core) ListTasks(credentialID, clientID, sid string) ([]Task, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tick()
+	if _, err := c.client(credentialID, clientID); err != nil {
+		return nil, err
+	}
+	s := c.sessions[sid]
+	if s == nil {
+		return nil, NotFound
+	}
+	values := []Task{}
+	for _, t := range s.tasks {
+		values = append(values, taskView(t, false))
+	}
+	sort.Slice(values, func(i, j int) bool {
+		return before(values[i].CreatedAt, values[i].ID, values[j].CreatedAt, values[j].ID)
+	})
+	return values, nil
 }
 
 func (c *Core) Cancel(credentialID, clientID, sid, tid string) (Task, error) {

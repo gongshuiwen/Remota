@@ -31,6 +31,7 @@ type Server struct {
 	Core                          *core.Core
 	config                        Config
 	validator                     *protocol.Validator
+	mcp                           *mcpGateway
 	store                         *store.Store
 	password                      auth.PasswordHash
 	authority, origin, publicMode string
@@ -148,6 +149,11 @@ func Open(config Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{Core: c, config: config, validator: v, store: st, password: data.Admin, authority: a, origin: o, publicMode: m, secure: m == "https", persist: st.Apply}
+	s.mcp, err = newMCPGateway(s)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.wg.Add(1)
@@ -155,12 +161,17 @@ func Open(config Config) (*Server, error) {
 		defer s.wg.Done()
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
+		ticks := 0
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				c.Sweep()
+				ticks++
+				if ticks%20 == 0 {
+					s.mcp.prune()
+				}
 			}
 		}
 	}()
@@ -172,6 +183,7 @@ func (s *Server) Close() error {
 		s.Core.Halt("shutting_down")
 		s.cancel()
 		s.wg.Wait()
+		s.mcp.close()
 		s.writeMu.Lock()
 		defer s.writeMu.Unlock()
 		s.closeErr = s.store.Close()

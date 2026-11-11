@@ -50,7 +50,7 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	}
 	status := http.StatusInternalServerError
 	switch code {
-	case "INVALID_JSON", "INVALID_ARGUMENT", "UNKNOWN_FIELD":
+	case "INVALID_JSON", "INVALID_ARGUMENT", "UNKNOWN_FIELD", "PROTOCOL_VERSION_REQUIRED", "PROTOCOL_VERSION_UNSUPPORTED":
 		status = 400
 	case "UNAUTHENTICATED":
 		status = 401
@@ -58,7 +58,7 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		status = 403
 	case "NOT_FOUND", "TASK_NOT_FOUND", "MCP_SESSION_NOT_FOUND":
 		status = 404
-	case "CREDENTIAL_REVOKED", "CREDENTIAL_OPERATION_EXISTS", "REVISION_CONFLICT", "INVALID_STATE", "RESULT_CONFLICT", "ALREADY_POLLING":
+	case "CREDENTIAL_REVOKED", "CREDENTIAL_OPERATION_EXISTS", "REVISION_CONFLICT", "INVALID_STATE", "RESULT_CONFLICT", "ALREADY_POLLING", "IDEMPOTENCY_CONFLICT", "TASK_BUSY":
 		status = 409
 	case "SESSION_ENDED", "GRANT_EXPIRED", "CALL_EXPIRED":
 		status = 410
@@ -66,7 +66,7 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		status = 413
 	case "UNSUPPORTED_MEDIA_TYPE":
 		status = 415
-	case "RATE_LIMITED", "CREDENTIAL_LIMIT":
+	case "RATE_LIMITED", "CREDENTIAL_LIMIT", "TASK_LIMIT":
 		status = 429
 	case "STATE_UNAVAILABLE", "CAPACITY_EXCEEDED", "AGENT_UNAVAILABLE", "SERVER_STOPPING":
 		status = 503
@@ -151,17 +151,24 @@ func (s *Server) validOrigin(r *http.Request) bool {
 	return err == nil && u.Scheme+"://"+a == s.origin
 }
 
-func (s *Server) body(w http.ResponseWriter, r *http.Request, model string) (map[string]any, error) {
+func jsonMedia(r *http.Request) error {
 	if len(r.Header.Values("Content-Type")) != 1 {
-		return nil, core.Code("UNSUPPORTED_MEDIA_TYPE")
+		return core.Code("UNSUPPORTED_MEDIA_TYPE")
 	}
 	ct, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || ct != "application/json" || params["charset"] != "" && !strings.EqualFold(params["charset"], "utf-8") {
-		return nil, core.Code("UNSUPPORTED_MEDIA_TYPE")
+		return core.Code("UNSUPPORTED_MEDIA_TYPE")
 	}
 	encodings := r.Header.Values("Content-Encoding")
 	if len(encodings) > 1 || len(encodings) == 1 && !strings.EqualFold(encodings[0], "identity") {
-		return nil, core.Code("UNSUPPORTED_MEDIA_TYPE")
+		return core.Code("UNSUPPORTED_MEDIA_TYPE")
+	}
+	return nil
+}
+
+func (s *Server) body(w http.ResponseWriter, r *http.Request, model string) (map[string]any, error) {
+	if err := jsonMedia(r); err != nil {
+		return nil, err
 	}
 	if r.ContentLength > 256<<10 {
 		return nil, core.Code("PAYLOAD_TOO_LARGE")
@@ -220,6 +227,10 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/api/v1/agent/") {
 		s.serveAgentHTTP(w, r)
+		return
+	}
+	if r.URL.Path == "/mcp" {
+		s.mcp.serveHTTP(w, r)
 		return
 	}
 	action, id, method := route(r.URL.Path)

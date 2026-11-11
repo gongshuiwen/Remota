@@ -28,6 +28,12 @@ func agentRoute(path string) (action, sid, id, method string) {
 	if len(p) == 5 && p[0] == "sessions" && p[1] != "" && p[2] == "calls" && p[3] != "" && p[4] == "result" {
 		return "call_result", p[1], p[3], "POST"
 	}
+	if len(p) == 5 && p[0] == "sessions" && p[1] != "" && p[2] == "tasks" && p[3] != "" {
+		switch p[4] {
+		case "start", "receipts", "result":
+			return "task_" + p[4], p[1], p[3], "POST"
+		}
+	}
 	return "", "", "", ""
 }
 
@@ -92,6 +98,10 @@ func (s *Server) serveAgentHTTP(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, core.InvalidArgument)
 		return
 	}
+	if strings.HasPrefix(action, "task_") && !core.ValidID(id, "tsk") {
+		s.fail(w, core.InvalidArgument)
+		return
+	}
 	if action == "get" {
 		v, err := s.Core.GetSession(sid)
 		if err != nil {
@@ -113,6 +123,12 @@ func (s *Server) serveAgentHTTP(w http.ResponseWriter, r *http.Request) {
 		model = "CloseInput"
 	case "call_result":
 		model = "CallResultInput"
+	case "task_start":
+		model = "StartInput"
+	case "task_receipts":
+		model = "ReceiptInput"
+	case "task_result":
+		model = "ResultInput"
 	}
 	in, err := s.body(w, r, model)
 	if err != nil {
@@ -218,6 +234,45 @@ func (s *Server) serveAgentHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(204)
+	case "task_start":
+		v, g, err := s.Core.Start(sid, id, protocol.Integer(in["consent_revision"]))
+		if err != nil {
+			s.failAgent(w, err)
+			return
+		}
+		s.respond(w, 200, object{"task": task(v), "grant": grant(g)})
+	case "task_receipts":
+		receipt := core.Receipt{Kind: in["kind"].(string)}
+		receipt.GrantID, _ = in["grant_id"].(string)
+		receipt.Reason, _ = in["reason"].(string)
+		receipt.ErrorCode, _ = in["error_code"].(string)
+		if value, ok := in["exit_code"]; ok {
+			x := int(protocol.Integer(value))
+			receipt.ExitCode = &x
+		}
+		v, err := s.Core.RecordReceipt(sid, id, receipt)
+		if err != nil {
+			s.failAgent(w, err)
+			return
+		}
+		s.respond(w, 200, object{"task": task(v)})
+	case "task_result":
+		result := core.Result{GrantID: in["grant_id"].(string), ConsentRevision: protocol.Integer(in["consent_revision"]), Outcome: in["outcome"].(string)}
+		result.ErrorCode, _ = in["error_code"].(string)
+		if value, ok := in["exit_code"]; ok {
+			x := int(protocol.Integer(value))
+			result.ExitCode = &x
+		}
+		for name, target := range map[string]*core.Output{"stdout": &result.Stdout, "stderr": &result.Stderr} {
+			value := in[name].(map[string]any)
+			*target = core.Output{Text: value["text"].(string), CapturedBytes: int(protocol.Integer(value["captured_bytes"])), Truncated: value["truncated"].(bool)}
+		}
+		v, err := s.Core.RecordResult(sid, id, result)
+		if err != nil {
+			s.failAgent(w, err)
+			return
+		}
+		s.respond(w, 200, object{"task": task(v)})
 	}
 }
 
@@ -234,12 +289,8 @@ func (s *Server) poll(v core.PollResult) object {
 			e["deadline"] = timestamp(*event.Deadline)
 			e["payload"] = object{"call_id": event.CallID, "method": event.Method, "consent_revision": event.ConsentRevision}
 		case "task.offer":
-			t := event.Task
 			e["deadline"] = timestamp(*event.Deadline)
-			e["payload"] = object{"task": object{"id": t.ID, "session_id": t.SessionID, "request_id": t.RequestID, "phase": t.Phase,
-				"consent_revision": t.ConsentRevision, "created_at": timestamp(t.CreatedAt), "offer_deadline": timestamp(t.OfferDeadline),
-				"initiator": object{"credential_id": t.CredentialID, "mcp_client_id": t.ClientID}, "execution": object{"state": t.Execution.State},
-				"details_available": true, "spec": object{"command": t.Spec.Command, "reason": t.Spec.Reason, "shell": t.Spec.Shell, "timeout_seconds": t.Spec.TimeoutSeconds}}}
+			e["payload"] = object{"task": task(*event.Task)}
 		}
 		events = append(events, e)
 	}
