@@ -312,6 +312,7 @@ func TestHTTPIdentityAndStrictMessages(t *testing.T) {
 		{"utf8", "POST", "/api/v1/admin/logout", string([]byte{'{', '"', 'x', '"', ':', '"', 0xff, '"', '}'}), "INVALID_JSON", 400, nil},
 		{"unknown_field", "POST", "/api/v1/admin/logout", `{"unexpected":true}`, "UNKNOWN_FIELD", 400, nil},
 		{"empty_password", "POST", "/api/v1/admin/login", `{"password":""}`, "UNAUTHENTICATED", 401, nil},
+		{"empty_password_unknown_field", "POST", "/api/v1/admin/login", `{"password":"","extra":true}`, "UNKNOWN_FIELD", 400, nil},
 		{"password_bytes", "POST", "/api/v1/admin/login", `{"password":"` + strings.Repeat("界", 86) + `"}`, "UNAUTHENTICATED", 401, nil},
 		{"access_exec", "POST", "/api/v1/admin/credentials", strings.TrimSuffix(body, "}") + `,"allow_exec":false}`, "INVALID_ARGUMENT", 400, nil},
 		{"content_type", "POST", "/api/v1/admin/logout", `{}`, "UNSUPPORTED_MEDIA_TYPE", 415, func(r *http.Request) { r.Header.Set("Content-Type", "text/plain") }},
@@ -344,7 +345,7 @@ func deviceTask(t *testing.T, h *webHarness) (string, string, core.Task, core.Gr
 	must(t, err)
 	_, err = h.s.Core.ClientMessage(mcp, cl.ID, true)
 	must(t, err)
-	s, err := h.s.Core.Register(access)
+	s, _, err := h.s.Core.Register(access)
 	must(t, err)
 	_, err = h.s.Core.Decide(s.ID, "accept", "full")
 	must(t, err)

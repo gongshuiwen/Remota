@@ -1,22 +1,24 @@
 package core
 
 import (
+	"crypto/subtle"
 	"sort"
 	"time"
 
+	"remota.local/remota/internal/auth"
 	"remota.local/remota/internal/clock"
 )
 
-func (c *Core) Register(accessID string) (Session, error) {
+func (c *Core) Register(accessID string) (Session, string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	n := c.tick()
 	v, err := c.credential(accessID, "access")
 	if err != nil {
-		return Session{}, err
+		return Session{}, "", err
 	}
 	if err = c.writable(); err != nil {
-		return Session{}, err
+		return Session{}, "", err
 	}
 	active := 0
 	for _, s := range c.sessions {
@@ -25,15 +27,34 @@ func (c *Core) Register(accessID string) (Session, error) {
 		}
 	}
 	if active >= 256 || len(c.sessions) >= 512 {
-		return Session{}, CapacityExceeded
+		return Session{}, "", CapacityExceeded
 	}
+	token := auth.Secret("rm_agent_")
 	expires := earlier(after(n, c.ttl), v.expires)
 	decision := earlier(after(n, decisionWait), expires)
 	s := &sessionState{Session: Session{ID: newID("ses"), State: "pending", CreatedAt: n.Wall,
 		ExpiresAt: expires.wall, DecisionDeadline: decision.wall}, accessID: accessID,
-		expires: expires, decision: decision, tasks: make(map[string]*taskState), requests: make(map[string]string)}
+		agentDigest: auth.Digest(token), expires: expires, decision: decision, tasks: make(map[string]*taskState), requests: make(map[string]string),
+		calls: make(map[string]*callState), changed: make(chan struct{})}
 	c.sessions[s.ID] = s
-	return sessionView(s, n), nil
+	return sessionView(s, n), token, nil
+}
+
+// AuthenticateAgent permits the bound identity through the ended retention
+// window; each operation still checks its own current state and permissions.
+func (c *Core) AuthenticateAgent(sid, token string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tick()
+	s := c.sessions[sid]
+	if s == nil || !auth.ValidSecret(token, "agent") {
+		return Unauthenticated
+	}
+	digest := auth.Digest(token)
+	if subtle.ConstantTimeCompare(digest[:], s.agentDigest[:]) != 1 {
+		return Unauthenticated
+	}
+	return nil
 }
 
 func (c *Core) Decide(sid, decision, mode string) (Session, error) {
@@ -89,9 +110,11 @@ func (c *Core) Reduce(sid string, expectedRevision int64, mode string) (Session,
 	}
 	s.Consent.Mode = "readonly"
 	s.Consent.Revision++
+	c.clearCalls(s)
 	for _, t := range s.tasks {
 		c.stopTask(t, "local_revoked", n)
 	}
+	c.notify(s)
 	return sessionView(s, n), nil
 }
 
@@ -131,6 +154,7 @@ func (c *Core) endSession(s *sessionState, reason, stopReason string, n clock.Sa
 	}
 	s.State, s.EndReason, s.EndedAt = "ended", reason, ptr(n.Wall)
 	s.Note = ""
+	c.clearCalls(s)
 	s.retain = after(n, retention)
 	s.endEvent = &Event{ID: newID("evt"), Type: "session.end", SessionID: s.ID,
 		CreatedAt: n.Wall, Reason: reason, EndedAt: ptr(n.Wall)}
@@ -143,6 +167,12 @@ func (c *Core) endSession(s *sessionState, reason, stopReason string, n clock.Sa
 			t.grant.Spec = Spec{}
 		}
 	}
+	c.notify(s)
+}
+
+func (c *Core) notify(s *sessionState) {
+	close(s.changed)
+	s.changed = make(chan struct{})
 }
 
 func sessionView(s *sessionState, n clock.Sample) Session {

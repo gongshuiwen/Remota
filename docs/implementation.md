@@ -1,6 +1,6 @@
 # Remota 第二阶段实施规划
 
-本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.2 启动与管理底座结果](#22-启动与管理底座结果)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
+本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.3 只读 Agent 结果](#23-只读-agent-结果)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
@@ -40,11 +40,11 @@
 
 Go 1.27 已发布新的严格 JSON API；React 官方也提供基于 Vite 的独立应用路径。这里的静态管理台适合该组合，Node 只承担构建和测试。依据见 [Go 1.27](https://go.dev/doc/go1.27)、[React 独立应用](https://react.dev/learn/build-a-react-app-from-scratch)与 [Vite 构建](https://vite.dev/guide/)。
 
-产品依赖固定在根 [go.mod](../go.mod) 与 [go.sum](../go.sum)，基础探针保留独立的 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)。2.2 沿用已验证的 SQLite、Schema 和系统接口版本，并使用 golang.org/x/net v0.62.0 的 [IDNA Lookup](https://pkg.go.dev/golang.org/x/net@v0.62.0/idna)规范化域名；该版本不受 [GO-2026-5026](https://pkg.go.dev/vuln/GO-2026-5026)影响，同时将间接依赖 x/text 更新至 v0.43.0。新增或升级依赖后重新验证。前端版本及 package-lock.json 在 2.6 验证后建立，MCP 协议版本继续固定为契约中的 2025-11-25。
+产品依赖固定在根 [go.mod](../go.mod) 与 [go.sum](../go.sum)，基础探针保留独立的 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)。2.2 沿用已验证的 SQLite、Schema 和系统接口版本，并使用 golang.org/x/net v0.62.0 的 [IDNA Lookup](https://pkg.go.dev/golang.org/x/net@v0.62.0/idna)规范化域名；该版本不受 [GO-2026-5026](https://pkg.go.dev/vuln/GO-2026-5026)影响，同时将间接依赖 x/text 更新至 v0.43.0。2.3 使用已验证的 golang.org/x/term v0.47.0 处理终端输入。新增或升级依赖后重新验证。前端版本及 package-lock.json 在 2.6 验证后建立，MCP 协议版本继续固定为契约中的 2025-11-25。
 
 ## 建议项目结构
 
-以下为产品目标目录，随相应步骤逐步建立；当前已建立服务端入口、认证、时钟、协议校验、控制核心和存储。validation 的独立 Go module 只用于技术探针，产品采用根目录单一 module。
+以下为产品目标目录，随相应步骤逐步建立；当前已建立服务端入口、只读 Agent、认证、时钟、协议校验、控制核心和存储。validation 的独立 Go module 只用于技术探针，产品采用根目录单一 module。
 
 ```text
 Remota/
@@ -58,7 +58,7 @@ Remota/
 │  ├─ clock/                 # 真实/平台经过时间；测试时注入时钟
 │  ├─ server/                # 启动、初始化、恢复和服务生命周期
 │  │  ├─ core/               # 会话、任务、凭据生效与快照的一致性边界
-│  │  ├─ http.go             # HTTP 路由与管理员 API；设备通道后续接入
+│  │  ├─ http.go             # HTTP 路由与管理员 API；agent.go 提供设备通道
 │  │  ├─ mcp/                # SDK 适配、工具映射与传输绑定
 │  │  ├─ store/              # SQLite 事务、状态版本与目录独占
 │  │  └─ webui/              # 静态资源嵌入；dist 为构建产物
@@ -230,13 +230,13 @@ go vet ./...
 go test -race -count=1 -timeout=90s ./...
 ```
 
-根模块的 ./... 不包含独立 validation 模块，其[复跑入口](#复跑入口与收口条件)保留。核心类型是进程内模型，不能直接当作 HTTP/MCP DTO；Agent 本机授权与首次发送锚点、MCP 传输及进程回收仍未接入。核心测试的执行事实由受控输入提供，不证明实际 spawn 或 OS 回收。
+根模块的 ./... 不包含独立 validation 模块，其[复跑入口](#复跑入口与收口条件)保留。核心类型是进程内模型，不能直接当作 HTTP/MCP DTO；只读 Agent 授权与租约发送锚点已在 2.3 接入，MCP 传输、命令开始许可锚点及进程回收仍未接入。核心测试的执行事实由受控输入提供，不证明实际 spawn 或 OS 回收。
 
 ## 2.2 启动与管理底座结果
 
 服务端入口为 [remota-server](../cmd/remota-server/main.go)。初始化只接受新空目录，一次性交付管理员口令、access 和 MCP 秘密；SQLite 只保存口令与凭据摘要及管理元数据。普通启动要求已有完整状态和目录独占锁，不将缺失、损坏或未知版本当作新部署。管理修改先在核心收紧权限，在锁外完成持久提交，失败或结果未知进入 degraded；本机恢复检查实际状态并收紧未确定的凭据。
 
-管理员登录、Cookie/CSRF、凭据签发/轮换/撤销、快照、备注及结束操作已接入现有 HTTP 契约和 Schema。设备和 MCP 的秘密鉴权已接入核心，其 HTTP/MCP 通道分别在 2.3、2.4 实现；管理台在 2.6 实现。
+管理员登录、Cookie/CSRF、凭据签发/轮换/撤销、快照、备注及结束操作已接入现有 HTTP 契约和 Schema。设备和 MCP 的秘密鉴权已接入核心；设备通道的只读部分已在 2.3 接入，MCP 通道和管理台分别在 2.4、2.6 实现。
 
 | 验证范围 | 入口 |
 |---|---|
@@ -256,7 +256,7 @@ go run ./cmd/remota-server serve --state-dir ~/.local/state/remota --listen 127.
 
 服务停止后，可运行 `go run ./cmd/remota-server recover --state-dir ~/.local/state/remota --inspect` 查看不含秘密的持久状态与待恢复操作；使用 `--reset-admin` 重置口令，使用 `--revoke` 指定需撤销的凭据 ID，该参数可重复。恢复会核实并保守撤销未确定操作涉及的凭据；恢复标记损坏时拒绝自动修复。若初始化已提交但秘密交付失败且无恢复标记，重置口令后须核对并撤销不可得的初始凭据，再新建凭据。若写入恢复标记本身失败，操作者仍须核对最后成功提交的状态并完成必要撤销。
 
-本阶段在 WSL Linux amd64 的 Linux 文件系统上运行服务进程和存储测试。Windows 当前以只读目录句柄执行同步，而 [FlushFileBuffers 要求 GENERIC_WRITE](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)，该路径很可能因权限错误拒绝初始化或写入；本环境的应用控制也阻止原生测试程序运行，目前请使用 WSL/Linux。macOS 原生目录同步和持久性尚未验证，交叉编译不等于平台通过。真实系统休眠、Agent、MCP 和浏览器端到端验收仍在后续阶段。
+本阶段在 WSL Linux amd64 的 Linux 文件系统上运行服务进程和存储测试。Windows 当前以只读目录句柄执行同步，而 [FlushFileBuffers 要求 GENERIC_WRITE](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)，该路径很可能因权限错误拒绝初始化或写入；本环境的应用控制也阻止原生测试程序运行，目前请使用 WSL/Linux。macOS 原生目录同步和持久性尚未验证，交叉编译不等于平台通过。真实系统休眠、MCP 和浏览器端到端验收仍在后续阶段。
 
 在有 C 编译器的 Linux 测试环境从仓库根目录运行，竞态检测设置 `CGO_ENABLED=1`：
 
@@ -265,3 +265,24 @@ go mod verify
 go vet ./...
 go test -race -count=1 -timeout=120s ./...
 ```
+
+## 2.3 只读 Agent 结果
+
+已接入 [只读 Agent](../internal/agent/agent.go) 和[设备 HTTP 通道](../internal/server/agent.go)：注册、读取会话、决定、降权、长轮询、结束及固定诊断结果。设备凭据只绑定当前会话，并在结束保留期后失效；poll 在锁外等待，诊断和结束事件可唤醒等待。固定 ping/info 由核心关联调用身份与授权，结果重传不重复探测。命令相关设备端点和 MCP 传输留待后续阶段。
+
+服务端启动后，在设备的交互终端运行：
+
+```text
+go run ./cmd/remota-agent --server http://127.0.0.1:8080
+```
+
+按提示输入 access 凭据，输入不会回显；确认页面显示服务地址、操作方、期限和只读权限，回车同意，输入 `n` 拒绝。运行中输入 `q` 结束，`r` 重申只读模式；当前入口不会申请 full，也不会创建命令进程。远端地址使用 HTTPS；使用非回环 HTTP 时，服务端和 Agent 均须显式设置 `--allow-insecure-http`。
+
+| 验证范围 | 入口 |
+|---|---|
+| 本机确认、首个租约、ping/info、结果应答丢失后重传、本机结束 | [只读链路测试](../internal/agent/integration_test.go) |
+| 阻塞 poll、租约到期、迟到响应、模拟休眠与时钟异常 | [链路测试](../internal/agent/integration_test.go)、[状态测试](../internal/agent/state_test.go) |
+| 会话身份、重复 poll、固定诊断、结果幂等与降权 | [设备通道测试](../internal/server/agent_test.go) |
+| 真实伪终端确认及凭据不回显、拒绝非交互输入 | [终端测试](../cmd/remota-agent/terminal_linux_test.go)、[入口测试](../cmd/remota-agent/main_test.go) |
+
+在 WSL Linux amd64 运行根模块竞态测试、终端测试及真实回环 HTTP；N01 的诊断调用由测试直接进入核心，完整 MCP 链路待 2.4。L02/B06 中的断联、迟到响应和经过时间异常已覆盖，真实系统休眠尚未验证。Windows 和 macOS 的 Agent 终端与时钟尚未做原生运行验证；六组目标平台的交叉编译不代表平台验收通过。复跑命令见[服务端验证入口](#22-启动与管理底座结果)，独立契约校验见[最小校验入口](contracts/acceptance/README.md#最小校验入口)。

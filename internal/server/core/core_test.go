@@ -123,7 +123,7 @@ func newHarness(t *testing.T, ttl, accessLifetime time.Duration) *harness {
 	h.client = cl.ID
 	_, err = c.ClientMessage(h.credential, h.client, true)
 	must(t, err)
-	s, err := c.Register(h.access)
+	s, _, err := c.Register(h.access)
 	must(t, err)
 	h.sid = s.ID
 	var sample struct {

@@ -28,7 +28,7 @@ func TestNearExpiryRegistrationAndActivation(t *testing.T) {
 	if p.Lease != nil || p.Session.State != "ended" || p.Session.EndReason != "access_invalid" {
 		t.Fatalf("%+v", p)
 	}
-	_, err = h.c.Register(h.access)
+	_, _, err = h.c.Register(h.access)
 	wantCode(t, err, Unauthenticated)
 	_, err = h.c.Decide(h.sid, "accept", "readonly")
 	wantCode(t, err, SessionEnded)
@@ -221,7 +221,22 @@ func TestPollValidationWaitingAndCleanupEvents(t *testing.T) {
 	h := newHarness(t, 0, 0)
 	h.activate(t, "full")
 	task := h.submit(t, 1)
+	for range 16 {
+		_, err := h.c.BeginDiagnostic(h.credential, h.client, h.sid, "ping")
+		must(t, err)
+	}
 	p := h.poll(t, 1, nil)
+	if len(p.Events) != 16 {
+		t.Fatalf("diagnostic batch size = %d", len(p.Events))
+	}
+	diagnosticACKs := make([]string, 0, len(p.Events))
+	for _, event := range p.Events {
+		if event.Type != "call.request" {
+			t.Fatal("diagnostic priority lost when batch was truncated")
+		}
+		diagnosticACKs = append(diagnosticACKs, event.ID)
+	}
+	p = h.poll(t, 1, diagnosticACKs)
 	offer := p.Events[0]
 	if offer.Type != "task.offer" || offer.Task.Spec == nil {
 		t.Fatalf("%+v", offer)
@@ -355,7 +370,7 @@ func TestReductionClientEndDegradedAndRetention(t *testing.T) {
 		g := h.grant(t, task)
 		h.started(t, task, g)
 		must(t, h.c.Halt("degraded"))
-		_, err := h.c.Register(h.access)
+		_, _, err := h.c.Register(h.access)
 		wantCode(t, err, StateUnavailable)
 		p := h.poll(t, 1, nil)
 		if p.Lease != nil || p.Session.EndReason != "server_degraded" {

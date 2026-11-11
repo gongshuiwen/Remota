@@ -100,11 +100,8 @@ func (v *Validator) Validate(model string, value any) (err error) {
 	return nil
 }
 
-func (v *Validator) Object(model string, b []byte) (map[string]any, error) {
-	value, err := Parse(b)
-	if err != nil {
-		return nil, err
-	}
+// Object validates a parsed object while distinguishing unknown top-level fields.
+func (v *Validator) Object(model string, value any) (map[string]any, error) {
 	m, ok := value.(map[string]any)
 	if !ok {
 		return nil, InvalidArgument
@@ -114,11 +111,17 @@ func (v *Validator) Object(model string, b []byte) (map[string]any, error) {
 		return nil, InternalError
 	}
 	for field := range m {
-		if _, ok := s.Properties[field]; !ok {
+		_, known := s.Properties[field]
+		for _, variant := range s.OneOf {
+			if _, ok := variant.Properties[field]; ok {
+				known = true
+			}
+		}
+		if !known {
 			return nil, UnknownField
 		}
 	}
-	if err = v.Validate(model, value); err != nil {
+	if err := v.Validate(model, value); err != nil {
 		return nil, err
 	}
 	return m, nil

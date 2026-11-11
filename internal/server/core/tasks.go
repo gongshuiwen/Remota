@@ -129,6 +129,7 @@ func (c *Core) Submit(credentialID, clientID, sid, requestID string, spec Spec) 
 	t.offerEvent = &Event{ID: newID("evt"), Type: "task.offer", SessionID: sid,
 		CreatedAt: n.Wall, Deadline: ptr(d.wall), Task: ptr(taskView(t, true))}
 	s.tasks[t.ID], s.requests[requestID] = t, t.ID
+	c.notify(s)
 	return taskView(t, false), false, nil
 }
 
@@ -234,6 +235,9 @@ func (c *Core) stopTask(t *taskState, reason string, n clock.Sample) {
 	t.Phase = "stopping"
 	t.cancelEvent = &Event{ID: newID("evt"), Type: "task.cancel", SessionID: t.SessionID,
 		CreatedAt: n.Wall, TaskID: t.ID, Reason: reason, ConfirmationDeadline: ptr(t.confirm.wall)}
+	if s := c.sessions[t.SessionID]; s != nil {
+		c.notify(s)
+	}
 }
 
 func (c *Core) unknown(s *sessionState, t *taskState, n clock.Sample) {

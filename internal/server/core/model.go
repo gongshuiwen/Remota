@@ -43,6 +43,7 @@ const (
 	OperationExists     Code = "CREDENTIAL_OPERATION_EXISTS"
 	CredentialLimit     Code = "CREDENTIAL_LIMIT"
 	CSRFInvalid         Code = "CSRF_INVALID"
+	CallExpired         Code = "CALL_EXPIRED"
 )
 
 // These are domain values, not wire DTOs. Transport adapters own JSON field
@@ -174,6 +175,8 @@ type Event struct {
 	Task                        *Task
 	TaskID                      string
 	ConfirmationDeadline        *time.Time
+	CallID, Method              string
+	ConsentRevision             int64
 }
 
 type PollResult struct {

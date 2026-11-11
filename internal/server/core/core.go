@@ -18,6 +18,7 @@ const (
 	retention      = 300 * time.Second
 	initWait       = 30 * time.Second
 	idleWait       = 30 * time.Minute
+	callWait       = 10 * time.Second
 )
 
 type deadline struct {
@@ -64,11 +65,14 @@ type clientState struct {
 type sessionState struct {
 	Session
 	accessID, initialMode                        string
+	agentDigest                                  [32]byte
 	expires, decision, activation, lease, retain deadline
 	lastSeen                                     *clock.Sample
 	leaseSeq                                     int64
 	tasks                                        map[string]*taskState
 	requests                                     map[string]string
+	calls                                        map[string]*callState
+	changed                                      chan struct{}
 	poll                                         *Poll
 	endEvent                                     *Event
 	endAck                                       bool
@@ -153,6 +157,14 @@ func (c *Core) tick() clock.Sample {
 	n.Elapsed = n.Elapsed.Truncate(time.Millisecond)
 	c.last = n
 	c.expire(n)
+	for _, s := range c.sessions {
+		for id, call := range s.calls {
+			if call.expires.due(n) {
+				finishCall(call)
+				delete(s.calls, id)
+			}
+		}
+	}
 	for digest, a := range c.admins {
 		if a.expires.due(n) {
 			delete(c.admins, digest)

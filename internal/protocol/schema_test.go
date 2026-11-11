@@ -77,3 +77,30 @@ func TestSharedContractMessages(t *testing.T) {
 		})
 	}
 }
+
+func TestObjectAcceptsDeclaredUnionFields(t *testing.T) {
+	v, err := NewValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		model, input string
+		want         error
+	}{
+		{"DecisionInput", `{"decision":"accept","mode":"readonly"}`, nil},
+		{"DecisionInput", `{"decision":"reject"}`, nil},
+		{"DecisionInput", `{"decision":"reject","extra":true}`, UnknownField},
+		{"DecisionInput", `{"decision":"reject","mode":"readonly"}`, InvalidArgument},
+		{"CallResultInput", `{"consent_revision":1,"result":{"pong":true,"agent_time":"2026-11-08T04:00:00.000Z"}}`, nil},
+		{"CallResultInput", `{"consent_revision":1,"error":{"code":"INTERNAL_ERROR"}}`, nil},
+	} {
+		value, err := Parse([]byte(tc.input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = v.Object(tc.model, value)
+		if err != tc.want {
+			t.Fatalf("%s: got %v, want %v", tc.model, err, tc.want)
+		}
+	}
+}

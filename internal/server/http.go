@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"io"
+	"maps"
 	"mime"
 	"net"
 	"net/http"
@@ -53,13 +54,13 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		status = 400
 	case "UNAUTHENTICATED":
 		status = 401
-	case "HOST_DENIED", "ORIGIN_DENIED", "CSRF_INVALID", "LOCAL_CONSENT_REQUIRED", "EXEC_NOT_ALLOWED":
+	case "HOST_DENIED", "ORIGIN_DENIED", "CSRF_INVALID", "LOCAL_CONSENT_REQUIRED", "LOCAL_RECONSENT_REQUIRED", "EXEC_NOT_ALLOWED":
 		status = 403
 	case "NOT_FOUND", "TASK_NOT_FOUND", "MCP_SESSION_NOT_FOUND":
 		status = 404
-	case "CREDENTIAL_REVOKED", "CREDENTIAL_OPERATION_EXISTS", "REVISION_CONFLICT", "INVALID_STATE", "RESULT_CONFLICT":
+	case "CREDENTIAL_REVOKED", "CREDENTIAL_OPERATION_EXISTS", "REVISION_CONFLICT", "INVALID_STATE", "RESULT_CONFLICT", "ALREADY_POLLING":
 		status = 409
-	case "SESSION_ENDED", "GRANT_EXPIRED":
+	case "SESSION_ENDED", "GRANT_EXPIRED", "CALL_EXPIRED":
 		status = 410
 	case "PAYLOAD_TOO_LARGE":
 		status = 413
@@ -67,8 +68,10 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		status = 415
 	case "RATE_LIMITED", "CREDENTIAL_LIMIT":
 		status = 429
-	case "STATE_UNAVAILABLE", "CAPACITY_EXCEEDED", "SERVER_STOPPING":
+	case "STATE_UNAVAILABLE", "CAPACITY_EXCEEDED", "AGENT_UNAVAILABLE", "SERVER_STOPPING":
 		status = 503
+	case "DIAGNOSTIC_TIMEOUT":
+		status = 504
 	default:
 		code = "INTERNAL_ERROR"
 	}
@@ -171,20 +174,29 @@ func (s *Server) body(w http.ResponseWriter, r *http.Request, model string) (map
 		}
 		return nil, protocol.InvalidJSON
 	}
-	m, err := s.validator.Object(model, b)
+	value, err := protocol.Parse(b)
+	if err != nil {
+		return nil, err
+	}
+	m, err := s.validator.Object(model, value)
 	// Password length failures are authentication failures, including empty input.
 	if model == "AdminLoginInput" && err == protocol.InvalidArgument {
-		value, parseErr := protocol.Parse(b)
-		if original, ok := value.(map[string]any); parseErr == nil && ok {
+		if original, ok := value.(map[string]any); ok {
 			if password, ok := original["password"].(string); ok && (len(password) == 0 || len(password) > 256) {
-				candidate := make(map[string]any, len(original))
-				for k, v := range original {
-					candidate[k] = v
-				}
+				candidate := maps.Clone(original)
 				candidate["password"] = "x"
 				if s.validator.Validate(model, candidate) == nil {
 					return original, nil
 				}
+			}
+		}
+	}
+	if model == "ConsentReduction" && err == protocol.InvalidArgument {
+		if original, ok := value.(map[string]any); ok && original["mode"] == "full" {
+			candidate := maps.Clone(original)
+			candidate["mode"] = "readonly"
+			if s.validator.Validate(model, candidate) == nil {
+				return original, nil
 			}
 		}
 	}
@@ -204,6 +216,10 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	a, err := normalizeAuthority(r.Host, scheme)
 	if err != nil || a != s.authority {
 		s.fail(w, core.Code("HOST_DENIED"))
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/api/v1/agent/") {
+		s.serveAgentHTTP(w, r)
 		return
 	}
 	action, id, method := route(r.URL.Path)

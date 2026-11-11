@@ -7,6 +7,7 @@ import "sort"
 type Poll struct {
 	sessionID string
 	revision  int64
+	Ready     <-chan struct{}
 }
 
 func (c *Core) BeginPoll(sid string, revision int64, acknowledgements []string) (*Poll, error) {
@@ -42,8 +43,18 @@ func (c *Core) BeginPoll(sid string, revision int64, acknowledgements []string) 
 				t.offerAck = true
 			}
 		}
+		for _, call := range s.calls {
+			if id == call.event.ID {
+				call.acknowledged = true
+			}
+		}
 	}
-	p := &Poll{sessionID: sid, revision: revision}
+	p := &Poll{sessionID: sid, revision: revision, Ready: s.changed}
+	if s.State == "ended" || s.leaseSeq == 0 || len(pendingEvents(s)) > 0 {
+		ready := make(chan struct{})
+		close(ready)
+		p.Ready = ready
+	}
 	s.poll = p
 	return p, nil
 }
@@ -93,7 +104,7 @@ func (c *Core) CompletePoll(p *Poll) (PollResult, error) {
 	if err := c.pollGate(s, p.revision); err != nil {
 		return PollResult{}, err
 	}
-	v := PollResult{Events: []Event{}}
+	v := PollResult{}
 	if s.State == "active" {
 		s.lease = earlier(after(n, leaseWindow), s.expires)
 		s.leaseSeq++
@@ -103,25 +114,17 @@ func (c *Core) CompletePoll(p *Poll) (PollResult, error) {
 			IssuedAt: n.Wall, ExpiresAt: s.lease.wall, ValidForMS: s.lease.remaining(n)}
 	}
 	v.Session = sessionView(s, n)
-	if s.endEvent != nil && !s.endAck {
-		v.Events = append(v.Events, cloneEvent(*s.endEvent))
-	}
-	for _, t := range s.tasks {
-		if t.cancelEvent != nil && t.Execution.State != "exited" && t.Execution.State != "not_started" {
-			v.Events = append(v.Events, cloneEvent(*t.cancelEvent))
-		}
-		if s.State == "active" && s.Consent.Mode == "full" && t.Phase == "queued" && !t.offerAck {
-			v.Events = append(v.Events, cloneEvent(*t.offerEvent))
-		}
-	}
+	v.Events = pendingEvents(s)
 	priority := func(kind string) int {
 		switch kind {
 		case "session.end":
 			return 0
 		case "task.cancel":
 			return 1
-		default:
+		case "call.request":
 			return 2
+		default:
+			return 3
 		}
 	}
 	sort.Slice(v.Events, func(i, j int) bool {
@@ -132,9 +135,38 @@ func (c *Core) CompletePoll(p *Poll) (PollResult, error) {
 		return before(a.CreatedAt, a.ID, b.CreatedAt, b.ID)
 	})
 	if len(v.Events) > 16 {
+		clear(v.Events[16:])
 		v.Events = v.Events[:16]
 	}
+	for i := range v.Events {
+		v.Events[i] = cloneEvent(v.Events[i])
+	}
 	return v, nil
+}
+
+// pendingEvents is called under the core lock, both before waiting and when
+// completing a poll; the latter must observe any changes while it waited.
+func pendingEvents(s *sessionState) []Event {
+	events := []Event{}
+	if s.endEvent != nil && !s.endAck {
+		events = append(events, *s.endEvent)
+	}
+	if s.State == "active" {
+		for _, call := range s.calls {
+			if !call.acknowledged && call.Result == nil {
+				events = append(events, call.event)
+			}
+		}
+	}
+	for _, t := range s.tasks {
+		if t.cancelEvent != nil && t.Execution.State != "exited" && t.Execution.State != "not_started" {
+			events = append(events, *t.cancelEvent)
+		}
+		if s.State == "active" && s.Consent.Mode == "full" && t.Phase == "queued" && !t.offerAck {
+			events = append(events, *t.offerEvent)
+		}
+	}
+	return events
 }
 
 func cloneEvent(e Event) Event {
