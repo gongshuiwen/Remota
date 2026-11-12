@@ -93,6 +93,16 @@ func windowsAssertExited(t *testing.T, h windows.Handle) {
 	}
 }
 
+func windowsAssertInJob(t *testing.T, process, job windows.Handle) {
+	t.Helper()
+	var member uint32
+	proc := windows.NewLazySystemDLL("kernel32.dll").NewProc("IsProcessInJob")
+	ok, _, err := proc.Call(uintptr(process), uintptr(job), uintptr(unsafe.Pointer(&member)))
+	if ok == 0 || member == 0 {
+		t.Fatalf("process is not in the managed Job: %v", err)
+	}
+}
+
 func TestWindowsJobClosesWholeTree(t *testing.T) {
 	dir := t.TempDir()
 	job, pi, err := jobTree(dir)
@@ -113,11 +123,13 @@ func TestWindowsJobClosesWholeTree(t *testing.T) {
 		t.Fatal("wrong bootstrap process")
 	}
 	leafHandle := windowsOwnedHandle(t, leaf)
+	windowsAssertInJob(t, pi.Process, job)
+	windowsAssertInJob(t, leafHandle, job)
 	var info struct {
 		UserTime, KernelTime, PeriodUserTime, PeriodKernelTime int64
 		Faults, Total, Active, Terminated                      uint32
 	}
-	if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil || info.Active != 2 {
+	if err := windows.QueryInformationJobObject(job, windows.JobObjectBasicAccountingInformation, uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil || info.Active < 2 {
 		t.Fatalf("Job membership: %d %v", info.Active, err)
 	}
 	if err := windows.CloseHandle(job); err != nil {

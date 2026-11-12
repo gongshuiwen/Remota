@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -49,8 +48,8 @@ func New(address string, allowInsecure bool) (*Agent, error) {
 	return &Agent{transport: t, clock: clockSource, info: localInfo}, nil
 }
 
-// Run receives decisions from the local terminal. It never grants full consent
-// or starts a command; the caller must require an interactive terminal.
+// Run receives decisions from the local terminal; the caller must require an
+// interactive terminal before supplying any input.
 func (a *Agent) Run(ctx context.Context, access string, input <-chan string, output io.Writer) error {
 	output = &lockedWriter{w: output}
 	work, cancel := context.WithCancel(ctx)
@@ -82,7 +81,31 @@ func (a *Agent) Run(ctx context.Context, access string, input <-chan string, out
 		return ErrProtocol
 	}
 	sid := state.session.id
-	defer a.closeSession(state, sid, token, epoch)
+	defer func() {
+		if ctx.Err() != nil {
+			state.end("signal")
+		}
+		state.end("local_end")
+		closed := make(chan struct{})
+		go func() { a.closeSession(state, sid, token, epoch); close(closed) }()
+		state.mu.Lock()
+		tasks := make([]*runningTask, 0, len(state.tasks))
+		for _, task := range state.tasks {
+			tasks = append(tasks, task)
+		}
+		state.mu.Unlock()
+		timeout := time.NewTimer(7 * time.Second)
+		defer timeout.Stop()
+		for _, task := range tasks {
+			select {
+			case <-task.done:
+			case <-timeout.C:
+				<-closed
+				return
+			}
+		}
+		<-closed
+	}()
 	go state.watch()
 	go func() {
 		select {
@@ -91,7 +114,7 @@ func (a *Agent) Run(ctx context.Context, access string, input <-chan string, out
 		case <-state.done:
 		}
 	}()
-	if _, err = fmt.Fprintf(output, "Server: %q\nOperator: %q\nPurpose: temporary remote assistance\nExpires: %s\nPermissions: read-only ping and system information; no commands.\nPress Enter to accept, or type n to reject: ",
+	if _, err = fmt.Fprintf(output, "Server: %q\nOperator: %q\nPurpose: temporary remote assistance\nExpires: %s\nPermissions: read-only ping and system information.\nPress Enter to accept read-only, f for full access, or n to reject: ",
 		a.transport.base, state.session.operator, state.session.expires.UTC().Format("2006-01-02T15:04:05.000Z")); err != nil {
 		state.end("protocol_error")
 		return err
@@ -112,6 +135,24 @@ func (a *Agent) Run(ctx context.Context, access string, input <-chan string, out
 				return nil
 			case "", "y", "yes":
 				goto accepted
+			case "f":
+				fmt.Fprint(output, "Full access allows subsequent commands without individual confirmation; commands run as your user. You can reduce access or end the session locally at any time. Type full to confirm, or press Enter to return to read-only: ")
+				select {
+				case <-state.done:
+					return nil
+				case confirmation, open := <-input:
+					if !open {
+						state.end("stdin_eof")
+						return nil
+					}
+					if strings.ToLower(strings.TrimSpace(confirmation)) == "full" && work.Err() == nil {
+						state.mu.Lock()
+						state.mode = "full"
+						state.mu.Unlock()
+						goto accepted
+					}
+					fmt.Fprint(output, "Press Enter to accept read-only, f for full access, or n to reject: ")
+				}
 			default:
 				fmt.Fprint(output, "Press Enter to accept read-only access, or n to reject: ")
 			}
@@ -119,6 +160,13 @@ func (a *Agent) Run(ctx context.Context, access string, input <-chan string, out
 	}
 
 accepted:
+	if work.Err() != nil {
+		state.end("signal")
+		return nil
+	}
+	state.mu.Lock()
+	mode := state.mode
+	state.mu.Unlock()
 	go a.actions(work, state, input, output, sid, token, epoch)
 	for {
 		sent, ok = state.sample()
@@ -127,11 +175,11 @@ accepted:
 		}
 		request, stop = context.WithTimeout(work, 10*time.Second)
 		decision, _, err := a.transport.request(request, "PUT", "/sessions/"+sid+"/decision", token, epoch,
-			map[string]any{"decision": "accept", "mode": "readonly"}, 200, "DecisionResponse")
+			map[string]any{"decision": "accept", "mode": mode}, 200, "DecisionResponse")
 		cancelled := request.Err() != nil
 		stop()
 		if err == nil && !cancelled {
-			if state.decision(sent, decision) != nil {
+			if state.decision(sent, decision, mode) != nil {
 				state.end("protocol_error")
 				return ErrProtocol
 			}
@@ -148,7 +196,15 @@ accepted:
 			return nil
 		}
 	}
-	fmt.Fprintln(output, "Read-only consent confirmed; waiting for the first lease. Type q to end or r to keep read-only mode.")
+	state.mu.Lock()
+	deferredReduction := mode == "full" && state.mode == "readonly" && state.beginReductionLocked()
+	revision := state.revision
+	localMode := state.mode
+	state.mu.Unlock()
+	if deferredReduction {
+		go a.reduce(work, state, output, sid, token, epoch, revision, "full")
+	}
+	fmt.Fprintf(output, "Local mode: %s; waiting for the first lease. Type q to end or r for read-only mode.\n", localMode)
 	return a.poll(work, state, sid, token, epoch)
 }
 
@@ -229,53 +285,71 @@ func (a *Agent) actions(ctx context.Context, state *localState, input <-chan str
 			case "r", "readonly":
 				state.mu.Lock()
 				_, ok := state.sampleLocked()
-				revision, generation := state.revision, state.generation
-				if state.reducing {
-					ok = false
-				} else if ok && revision != 0 {
-					state.reducing = true
+				revision := state.revision
+				mode := state.mode
+				if ok && revision == 0 && mode == "full" {
+					state.mode = "readonly"
+					state.mu.Unlock()
+					fmt.Fprintln(output, "Read-only mode requested.")
+					continue
 				}
+				ok = ok && revision != 0 && state.beginReductionLocked()
 				state.mu.Unlock()
 				if !ok || revision == 0 {
 					continue
 				}
-				go a.reduce(ctx, state, output, sid, token, epoch, revision, generation)
+				go a.reduce(ctx, state, output, sid, token, epoch, revision, mode)
 			}
 		}
 	}
 }
 
-func (a *Agent) reduce(ctx context.Context, state *localState, output io.Writer, sid, token, epoch string, revision, generation int64) {
+func (a *Agent) reduce(ctx context.Context, state *localState, output io.Writer, sid, token, epoch string, revision int64, oldMode string) {
 	defer func() {
 		state.mu.Lock()
-		state.reducing = false
+		close(state.reductionDone)
+		state.reductionDone = nil
 		state.mu.Unlock()
 	}()
-	request, cancel := context.WithTimeout(ctx, 10*time.Second)
-	v, _, err := a.transport.request(request, "PUT", "/sessions/"+sid+"/consent", token, epoch,
-		map[string]any{"expected_revision": revision, "mode": "readonly"}, 200, "SessionResponse")
-	cancelled := request.Err() != nil
-	cancel()
-	if err == nil && !cancelled {
-		session, e := readSession(v["session"])
-		state.mu.Lock()
-		current := state.phase != "ended" && state.generation == generation
-		valid := e == nil && sameSession(state.session, session) && session.state == "active" && session.mode == "readonly" && session.revision == revision
-		state.mu.Unlock()
-		if !current {
+	for {
+		request, cancel := context.WithTimeout(ctx, 10*time.Second)
+		v, _, err := a.transport.request(request, "PUT", "/sessions/"+sid+"/consent", token, epoch,
+			map[string]any{"expected_revision": revision, "mode": "readonly"}, 200, "SessionResponse")
+		cancelled := request.Err() != nil
+		cancel()
+		if err == nil && !cancelled {
+			session, e := readSession(v["session"])
+			state.mu.Lock()
+			current := state.phase != "ended"
+			want := revision
+			if oldMode == "full" {
+				want++
+			}
+			valid := e == nil && sameSession(state.session, session) && session.state == "active" && session.mode == "readonly" && session.revision == want
+			if current && valid {
+				state.revision = want
+			}
+			state.mu.Unlock()
+			if !current {
+				return
+			}
+			if !valid {
+				state.end("protocol_error")
+				return
+			}
+			fmt.Fprintln(output, "Read-only mode confirmed.")
 			return
 		}
-		if !valid {
-			state.end("protocol_error")
+		if ctx.Err() != nil {
 			return
 		}
-		fmt.Fprintln(output, "Read-only mode confirmed.")
-	} else if ctx.Err() == nil {
 		if !transient(err) && !cancelled {
 			state.end("protocol_error")
 			return
 		}
-		state.pollFailed(generation)
+		if !retryWait(ctx, err) {
+			return
+		}
 	}
 }
 
@@ -301,14 +375,49 @@ func (a *Agent) poll(ctx context.Context, state *localState, sid, token, epoch s
 	acks := []string{}
 	seen := make(map[string]seenEvent)
 	calls := make(map[string]cachedCall)
+	tasks := make(map[string]taskEventRecord)
+	taskOwners := make(map[string]string)
+	rememberTaskEvent := func(kind, taskID, eventID string) bool {
+		if _, exists := tasks[taskID]; !exists && len(tasks) >= 32 {
+			return false
+		}
+		owner := kind + ":" + taskID
+		if previous := taskOwners[eventID]; previous != "" && previous != owner {
+			return false
+		}
+		taskOwners[eventID] = owner
+		return true
+	}
 	for {
+		state.mu.Lock()
+		if done := state.reductionDone; done != nil {
+			state.mu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return nil
+			}
+		}
+		state.mu.Unlock()
 		sent, revision, generation, ok := state.pollStart()
 		if !ok {
 			return nil
 		}
 		request, cancel := context.WithTimeout(ctx, 15*time.Second)
+		state.mu.Lock()
+		if state.generation != generation || state.reductionDone != nil || state.phase == "ended" {
+			state.mu.Unlock()
+			cancel()
+			continue
+		}
+		state.pollCancel = cancel
+		state.mu.Unlock()
 		body := map[string]any{"consent_revision": revision, "ack_event_ids": acks}
 		response, _, err := a.transport.request(request, "POST", "/sessions/"+sid+"/poll", token, epoch, body, 200, "PollResult")
+		state.mu.Lock()
+		state.pollCancel = nil
+		state.mu.Unlock()
 		if err != nil {
 			cancelled := request.Err() != nil
 			cancel()
@@ -339,6 +448,13 @@ func (a *Agent) poll(ctx context.Context, state *localState, sid, token, epoch s
 			return nil
 		}
 		acks = []string{}
+		acked := make(map[string]bool)
+		ack := func(id string) {
+			if !acked[id] {
+				acked[id] = true
+				acks = append(acks, id)
+			}
+		}
 		now, ok := state.sample()
 		if !ok {
 			return nil
@@ -355,7 +471,35 @@ func (a *Agent) poll(ctx context.Context, state *localState, sid, token, epoch s
 		}
 		for _, raw := range response["events"].([]any) {
 			event := raw.(map[string]any)
-			if event["session_id"] != sid || event["type"] != "call.request" {
+			if event["session_id"] != sid {
+				state.end("protocol_error")
+				return ErrProtocol
+			}
+			id, kind := event["id"].(string), event["type"].(string)
+			if kind == "task.cancel" {
+				payload := event["payload"].(map[string]any)
+				created, e1 := time.Parse(time.RFC3339Nano, event["created_at"].(string))
+				confirmation, e2 := time.Parse(time.RFC3339Nano, payload["confirmation_deadline"].(string))
+				taskID := payload["task_id"].(string)
+				cancellation := taskCancellation{event["created_at"].(string), payload["reason"].(string), payload["confirmation_deadline"].(string)}
+				record := tasks[taskID]
+				if _, exists := seen[id]; exists || e1 != nil || e2 != nil || created.Before(state.session.created) || created.After(issued) || !confirmation.After(created) || confirmation.Sub(created) > 5*time.Second ||
+					record.cancelID != "" && (record.cancelID != id || record.cancel != cancellation) || !rememberTaskEvent(kind, taskID, id) {
+					state.end("protocol_error")
+					return ErrProtocol
+				}
+				record.cancelID, record.cancel = id, cancellation
+				tasks[taskID] = record
+				stopDeadline := sent.Elapsed + max(0, min(confirmation.Sub(issued), confirmation.Sub(created)))
+				state.stopTask(taskID, cancellation.reason, stopDeadline)
+				ack(id)
+				continue
+			}
+			if kind == "session.end" {
+				state.end("")
+				return nil
+			}
+			if kind != "call.request" && kind != "task.offer" {
 				state.end("protocol_error")
 				return ErrProtocol
 			}
@@ -375,12 +519,37 @@ func (a *Agent) poll(ctx context.Context, state *localState, sid, token, epoch s
 				}
 			}
 			payload := event["payload"].(map[string]any)
+			if kind == "task.offer" {
+				task := payload["task"].(map[string]any)
+				offer := readOffer(task)
+				record := tasks[offer.id]
+				mode := response["session"].(map[string]any)["consent"].(map[string]any)["mode"].(string)
+				if _, exists := seen[id]; exists || mode != "full" || offer.session != sid || offer.revision != revision || offer.created != event["created_at"] || offer.expires != event["deadline"] || task["phase"] != "queued" ||
+					record.offerID != "" && (record.offerID != id || record.offer != offer) || !rememberTaskEvent(kind, offer.id, id) {
+					state.end("protocol_error")
+					return ErrProtocol
+				}
+				ack(id)
+				if record.offerID != "" {
+					continue
+				}
+				record.offerID, record.offer = id, offer
+				tasks[offer.id] = record
+				if record.cancelID == "" && state.permit(revision, deadline) {
+					a.claimTask(ctx, state, sid, token, epoch, offer, deadline)
+				}
+				continue
+			}
+			if taskOwners[id] != "" {
+				state.end("protocol_error")
+				return ErrProtocol
+			}
 			callRevision := protocol.Integer(payload["consent_revision"])
 			if callRevision != revision {
 				state.end("protocol_error")
 				return ErrProtocol
 			}
-			id, callID, method := event["id"].(string), payload["call_id"].(string), payload["method"].(string)
+			callID, method := payload["call_id"].(string), payload["method"].(string)
 			identity := eventIdentity{event["created_at"].(string), event["deadline"].(string), callID, method, callRevision}
 			if previous, ok := seen[id]; ok && previous.value != identity {
 				state.end("protocol_error")
@@ -390,7 +559,7 @@ func (a *Agent) poll(ctx context.Context, state *localState, sid, token, epoch s
 				deadline = min(deadline, previous.deadline)
 			}
 			seen[id] = seenEvent{identity, deadline}
-			acks = append(acks, id)
+			ack(id)
 			call, exists := calls[callID]
 			if exists && (call.method != method || call.revision != callRevision || !call.absolute.Equal(absolute)) {
 				state.end("protocol_error")
@@ -499,11 +668,5 @@ func localInfo() (map[string]any, error) {
 	if err != nil || !utf8.ValidString(hostname) || len(hostname) > 255 {
 		return nil, errors.New("hostname unavailable")
 	}
-	shells := []string{}
-	for _, shell := range []string{"sh", "powershell"} {
-		if _, err := exec.LookPath(shell); err == nil {
-			shells = append(shells, shell)
-		}
-	}
-	return map[string]any{"agent_version": Version, "os": runtime.GOOS, "arch": runtime.GOARCH, "hostname": hostname, "supported_shells": shells}, nil
+	return map[string]any{"agent_version": Version, "os": runtime.GOOS, "arch": runtime.GOARCH, "hostname": hostname, "supported_shells": supportedShells()}, nil
 }

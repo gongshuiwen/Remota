@@ -7,7 +7,7 @@ import (
 	"unsafe"
 )
 
-var interruptTime = windows.NewLazySystemDLL("kernel32.dll").NewProc("QueryInterruptTimePrecise")
+var interruptTime = windows.NewLazySystemDLL("api-ms-win-core-realtime-l1-1-1.dll").NewProc("QueryInterruptTimePrecise")
 
 func platformElapsed() (time.Duration, error) {
 	if err := interruptTime.Find(); err != nil {

@@ -2,7 +2,7 @@
 
 临时远程协助系统的重写设计，采用单实例服务端、主动出站的设备 Agent、内嵌管理台和远程 HTTP MCP。
 
-当前已接入控制核心、服务端管理底座、只读 Agent、MCP 通道和服务端任务闭环；真实命令执行与管理台尚未接入。阶段门槛、运行入口与实际验证状态统一见[实施规划](docs/implementation.md)。
+当前已接入控制核心、服务端管理底座、Agent、MCP 通道和真实命令执行；管理台尚未接入。各平台的原生验证仍在进行，阶段门槛、运行入口与实际验证状态统一见[实施规划](docs/implementation.md)。
 
 ## 阅读路径
 
@@ -28,6 +28,7 @@
 - [启动与管理底座](docs/implementation.md#22-启动与管理底座结果)：运行服务、检查恢复状态，并复跑服务端验证。
 - [只读 Agent](docs/implementation.md#23-只读-agent-结果)：运行终端确认、设备通道和只读诊断，查看实际验证范围。
 - [MCP 与任务闭环](docs/implementation.md#24-mcp-与任务闭环结果)：查看工具、设备端点和受控执行事实的验证范围。
+- [真实平台执行](docs/implementation.md#25-真实平台执行进展)：查看 full 确认、进程回收和各平台验证范围。
 - [消息 Schema](docs/contracts/schemas/messages.schema.json)与[共用样例](docs/contracts/acceptance/messages.json)：字段结构与校验数据的来源。
 
 架构与契约保持编程语言无关；具体实现选型在实施规划维护。协议规则、消息结构和验收观察的权威来源见[规则归属](docs/contracts/README.md#阅读入口与规则归属)。

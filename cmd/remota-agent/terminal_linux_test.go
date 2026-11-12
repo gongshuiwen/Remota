@@ -121,6 +121,17 @@ func TestTerminalReadonlyAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	wait(func() bool { return strings.Contains(output.String(), "Press Enter to accept") })
+	if _, err = fmt.Fprintln(master, "f"); err != nil {
+		t.Fatal(err)
+	}
+	wait(func() bool { return strings.Contains(output.String(), "Type full to confirm") })
+	if _, err = fmt.Fprintln(master); err != nil {
+		t.Fatal(err)
+	}
+	wait(func() bool { return strings.Count(output.String(), "Press Enter to accept") >= 2 })
+	if snapshot := service.Core.Snapshot(); len(snapshot.Sessions) != 1 || snapshot.Sessions[0].State != "pending" {
+		t.Fatal("empty full confirmation granted consent")
+	}
 	if _, err = fmt.Fprintln(master); err != nil {
 		t.Fatal(err)
 	}

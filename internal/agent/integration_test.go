@@ -15,53 +15,38 @@ import (
 	"time"
 
 	"remota.local/remota/internal/clock"
-	"remota.local/remota/internal/server"
 	"remota.local/remota/internal/server/core"
-	"remota.local/remota/internal/server/store"
 )
 
 func TestReadonlyAgentDiagnosticAndLostReply(t *testing.T) {
-	dir := t.TempDir()
-	_, handoff, err := store.Initialize(dir, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	web := httptest.NewUnstartedServer(nil)
-	service, err := server.Open(server.Config{StateDir: dir, Listen: web.Listener.Addr().String()})
-	if err != nil {
-		t.Fatal(err)
-	}
 	var resultRequests atomic.Int32
 	reductionStarted, releaseReduction := make(chan struct{}), make(chan struct{})
 	defer close(releaseReduction)
-	web.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/consent") {
-			io.Copy(io.Discard, r.Body)
-			close(reductionStarted)
-			select {
-			case <-r.Context().Done():
-			case <-releaseReduction:
-			}
-			return
-		}
-		if strings.Contains(r.URL.Path, "/calls/") && strings.HasSuffix(r.URL.Path, "/result") {
-			recorded := httptest.NewRecorder()
-			service.Handler().ServeHTTP(recorded, r)
-			for key, values := range recorded.Header() {
-				w.Header()[key] = append([]string(nil), values...)
-			}
-			if resultRequests.Add(1) == 1 && recorded.Code == 204 {
-				w.WriteHeader(503) // The result committed, but its response was lost.
+	backend := newAgentServer(t, nil, func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/consent") {
+				io.Copy(io.Discard, r.Body)
+				close(reductionStarted)
+				select {
+				case <-r.Context().Done():
+				case <-releaseReduction:
+				}
 				return
 			}
-			w.WriteHeader(recorded.Code)
-			io.Copy(w, recorded.Body)
-			return
-		}
-		service.Handler().ServeHTTP(w, r)
+			if strings.Contains(r.URL.Path, "/calls/") && strings.HasSuffix(r.URL.Path, "/result") {
+				recorded := httptest.NewRecorder()
+				next.ServeHTTP(recorded, r)
+				if resultRequests.Add(1) == 1 && recorded.Code == 204 {
+					w.WriteHeader(503) // The result committed, but its response was lost.
+					return
+				}
+				replayResponse(w, recorded)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
 	})
-	web.Start()
-	t.Cleanup(func() { web.Close(); service.Close() })
+	service, web, handoff := backend.service, backend.web, backend.handoff
 	transport, err := NewTransport(web.URL, false)
 	if err != nil {
 		t.Fatal(err)
@@ -80,27 +65,10 @@ func TestReadonlyAgentDiagnosticAndLostReply(t *testing.T) {
 		}
 		return map[string]any{"agent_version": "test", "os": "linux", "arch": "amd64", "hostname": "fixture", "supported_shells": []string{}}, nil
 	}}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	input := make(chan string, 2)
 	var output bytes.Buffer
-	done := make(chan error, 1)
-	go func() { done <- a.Run(ctx, handoff.Access, input, &output) }()
-	wait := func(condition func() bool) {
-		t.Helper()
-		until := time.Now().Add(5 * time.Second)
-		for time.Now().Before(until) {
-			if condition() {
-				return
-			}
-			select {
-			case err := <-done:
-				t.Fatalf("agent stopped early: %v", err)
-			case <-time.After(10 * time.Millisecond):
-			}
-		}
-		t.Fatal("agent did not reach expected state")
-	}
+	run := startAgentRun(t, a, handoff.Access, &output)
+	input := run.input
+	wait := func(condition func() bool) { t.Helper(); run.wait(t, condition) }
 	var sid string
 	wait(func() bool {
 		v := service.Core.Snapshot()
@@ -215,15 +183,7 @@ func TestReadonlyAgentDiagnosticAndLostReply(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("reduction request did not start")
 	}
-	input <- "q"
-	select {
-	case err = <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("local end did not stop the agent")
-	}
+	run.stop(t)
 	session, err := service.Core.GetSession(sid)
 	if err != nil || session.State != "ended" || session.EndReason != "local_end" {
 		t.Fatalf("session did not end locally: %v", err)

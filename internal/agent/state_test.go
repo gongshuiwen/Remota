@@ -64,7 +64,7 @@ func activeState(t *testing.T) (*localState, *testClock, clock.Sample, int64, ma
 	decision := fixture(t, "decision.response")
 	readonly := fixture(t, "poll.readonly")
 	decision["session"] = readonly["session"]
-	if err := s.decision(f.now(), decision); err != nil {
+	if err := s.decision(f.now(), decision, "readonly"); err != nil {
 		t.Fatal(err)
 	}
 	f.advance(time.Second, time.Second)

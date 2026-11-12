@@ -1,6 +1,6 @@
 # Remota 第二阶段实施规划
 
-本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.4 MCP 与任务闭环结果](#24-mcp-与任务闭环结果)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
+本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.5 真实平台执行进展](#25-真实平台执行进展)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
@@ -44,7 +44,7 @@ Go 1.27 已发布新的严格 JSON API；React 官方也提供基于 Vite 的独
 
 ## 建议项目结构
 
-以下为产品目标目录，随相应步骤逐步建立；当前已建立服务端入口、只读 Agent、认证、时钟、协议校验、控制核心、存储和 MCP 适配。validation 的独立 Go module 只用于技术探针，产品采用根目录单一 module。
+以下为产品目标目录，随相应步骤逐步建立；当前已建立服务端入口、Agent、认证、时钟、协议校验、控制核心、存储和 MCP 适配。validation 的独立 Go module 只用于技术探针，产品采用根目录单一 module。
 
 ```text
 Remota/
@@ -119,7 +119,7 @@ Agent 由本机授权状态、传输循环、独立看门狗和执行器组成�
 
 时钟接口区分 UTC 展示时间与覆盖休眠的经过时间。Go 文档明确指出部分系统的单调时钟在休眠时可能停止，因此不能直接把 time.Since 当作完整租约时钟；平台候选及验证状态见 [2.0 结果](#20-技术验证结果)。timer 只用于唤醒，恢复后重新检查权限。依据见 [Go 时钟说明](https://go.dev/src/time/time.go)与[系统时钟语义](https://man7.org/linux/man-pages/man3/clock_gettime.3.html)。
 
-执行器通过平台文件隔离 Windows Job 与 Linux/macOS 进程组。os/exec 负责启动和管道，但 CommandContext 的默认取消只针对命令进程，完整回收由执行器承担。以[平台执行器约定](contracts/tasks.md#平台执行器约定)为验收边界，参见 [os/exec 取消行为](https://pkg.go.dev/os/exec#CommandContext)。
+执行器通过平台文件隔离 Windows Job 与 Linux/macOS 进程组：Windows 在创建时将进程加入 Job，POSIX 使用 os/exec 建立进程组；两者均自行处理管道和完整回收。以[平台执行器约定](contracts/tasks.md#平台执行器约定)为验收边界，参见 [os/exec 取消行为](https://pkg.go.dev/os/exec#CommandContext)。
 
 ### MCP SDK 的使用范围
 
@@ -185,7 +185,7 @@ Windows 的时钟探针绑定 QueryInterruptTimePrecise，包含休眠补偿；m
 |---|---|---|
 | Linux amd64 | 通过 | WSL Linux 内实际运行，全部通过；不代表物理机休眠或全部 Linux 发行环境 |
 | Linux arm64 | 通过 | 无对应设备，未运行 |
-| Windows amd64 | 通过 | 应用控制策略阻止执行测试程序，未通过运行验证 |
+| Windows amd64 | 通过 | 已运行 Job 进程树、持有者崩溃和普通时钟推进探针；完整独立验证套件尚未重跑 |
 | Windows arm64 | 通过 | 无对应设备，未运行 |
 | macOS amd64 / arm64 | 均通过 | 无原生 runner，未运行 |
 | 真实休眠 | 不适用 | 未执行；仅清醒状态的默认及 1 秒时钟窗口通过 |
@@ -230,7 +230,7 @@ go vet ./...
 go test -race -count=1 -timeout=90s ./...
 ```
 
-根模块的 ./... 不包含独立 validation 模块，其[复跑入口](#复跑入口与收口条件)保留。核心类型是进程内模型，不能直接当作 HTTP/MCP DTO；只读 Agent 授权与租约发送锚点已在 2.3 接入，MCP 传输见 [2.4](#24-mcp-与任务闭环结果)，设备侧命令开始许可锚点及进程回收仍未接入。核心测试的执行事实由受控输入提供，不证明实际 spawn 或 OS 回收。
+根模块的 ./... 不包含独立 validation 模块，其[复跑入口](#复跑入口与收口条件)保留。核心类型是进程内模型，不能直接当作 HTTP/MCP DTO；只读 Agent 授权与租约发送锚点已在 2.3 接入，MCP 传输见 [2.4](#24-mcp-与任务闭环结果)，设备侧命令开始许可锚点及进程回收见 [2.5](#25-真实平台执行进展)。核心测试的执行事实由受控输入提供，不证明实际 spawn 或 OS 回收。
 
 ## 2.2 启动与管理底座结果
 
@@ -256,7 +256,7 @@ go run ./cmd/remota-server serve --state-dir ~/.local/state/remota --listen 127.
 
 服务停止后，可运行 `go run ./cmd/remota-server recover --state-dir ~/.local/state/remota --inspect` 查看不含秘密的持久状态与待恢复操作；使用 `--reset-admin` 重置口令，使用 `--revoke` 指定需撤销的凭据 ID，该参数可重复。恢复会核实并保守撤销未确定操作涉及的凭据；恢复标记损坏时拒绝自动修复。若初始化已提交但秘密交付失败且无恢复标记，重置口令后须核对并撤销不可得的初始凭据，再新建凭据。若写入恢复标记本身失败，操作者仍须核对最后成功提交的状态并完成必要撤销。
 
-本阶段在 WSL Linux amd64 的 Linux 文件系统上运行服务进程和存储测试。Windows 当前以只读目录句柄执行同步，而 [FlushFileBuffers 要求 GENERIC_WRITE](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)，该路径很可能因权限错误拒绝初始化或写入；本环境的应用控制也阻止原生测试程序运行，目前请使用 WSL/Linux。macOS 原生目录同步和持久性尚未验证，交叉编译不等于平台通过。真实系统休眠和浏览器端到端验收仍在后续阶段；MCP 的验证范围见 [2.4](#24-mcp-与任务闭环结果)。
+本阶段在 WSL Linux amd64 的 Linux 文件系统上运行服务进程和存储测试。Windows 原生测试中服务端存储初始化失败；当前目录同步使用只读句柄，而 [FlushFileBuffers 要求 GENERIC_WRITE](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)，仍需单独定位和修复，目前请使用 WSL/Linux。macOS 原生目录同步和持久性尚未验证，交叉编译不等于平台通过。真实系统休眠和浏览器端到端验收仍在后续阶段；MCP 的验证范围见 [2.4](#24-mcp-与任务闭环结果)。
 
 在有 C 编译器的 Linux 测试环境从仓库根目录运行，竞态检测设置 `CGO_ENABLED=1`：
 
@@ -276,7 +276,7 @@ go test -race -count=1 -timeout=120s ./...
 go run ./cmd/remota-agent --server http://127.0.0.1:8080
 ```
 
-按提示输入 access 凭据，输入不会回显；确认页面显示服务地址、操作方、期限和只读权限，回车同意，输入 `n` 拒绝。运行中输入 `q` 结束，`r` 重申只读模式；当前入口不会申请 full，也不会创建命令进程。远端地址使用 HTTPS；使用非回环 HTTP 时，服务端和 Agent 均须显式设置 `--allow-insecure-http`。
+按提示输入 access 凭据，输入不会回显；确认页面显示服务地址、操作方、期限和权限说明，回车同意只读，输入 `n` 拒绝。输入 `f` 后还须输入 `full` 才会批准命令执行。运行中输入 `q` 结束，`r` 收紧为只读。远端地址使用 HTTPS；使用非回环 HTTP 时，服务端和 Agent 均须显式设置 `--allow-insecure-http`。
 
 | 验证范围 | 入口 |
 |---|---|
@@ -285,7 +285,7 @@ go run ./cmd/remota-agent --server http://127.0.0.1:8080
 | 会话身份、重复 poll、固定诊断、结果幂等与降权 | [设备通道测试](../internal/server/agent_test.go) |
 | 真实伪终端确认及凭据不回显、拒绝非交互输入 | [终端测试](../cmd/remota-agent/terminal_linux_test.go)、[入口测试](../cmd/remota-agent/main_test.go) |
 
-在 WSL Linux amd64 运行根模块竞态测试、终端测试及真实回环 HTTP；2.4 补充了实际只读 Agent 与 MCP 的 ping 链路。L02/B06 中的断联、迟到响应和经过时间异常已覆盖，真实系统休眠尚未验证。Windows 和 macOS 的 Agent 终端与时钟尚未做原生运行验证；六组目标平台的交叉编译不代表平台验收通过。复跑命令见[服务端验证入口](#22-启动与管理底座结果)，独立契约校验见[最小校验入口](contracts/acceptance/README.md#最小校验入口)。
+在 WSL Linux amd64 运行根模块竞态测试、终端测试及真实回环 HTTP；2.4 补充了实际只读 Agent 与 MCP 的 ping 链路。L02/B06 中的断联、迟到响应和经过时间异常已覆盖，真实系统休眠尚未验证。Windows 的普通时钟推进已原生验证，本机 full 确认与凭据不回显由下节的 Windows 端到端测试覆盖；macOS 的 Agent 终端及时钟尚未做原生运行验证。交叉编译不代表平台验收通过。复跑命令见[服务端验证入口](#22-启动与管理底座结果)，独立契约校验见[最小校验入口](contracts/acceptance/README.md#最小校验入口)。
 
 ## 2.4 MCP 与任务闭环结果
 
@@ -298,4 +298,28 @@ go run ./cmd/remota-agent --server http://127.0.0.1:8080
 | MCP 固定诊断、等待取消或超时、断连时并发限制、客户端结束期间的等待清理 | [MCP 测试](../internal/server/mcp_test.go)、[SDK 取消探针](../validation/mcp_test.go) |
 | 真实只读 Agent 通过回环 HTTP 响应 MCP ping | [Agent 联合测试](../internal/agent/integration_test.go) |
 
-受控设备替身只提交预设执行事实，不创建进程；当前 Agent 仍只提供 readonly 确认与诊断。full 本机确认、实际 spawn、shell、输出采集、开始许可本机锚点与系统级回收属于 2.5，不能将本阶段任务测试视为真实平台执行验收。测试与静态检查的复跑入口见[服务端验证入口](#22-启动与管理底座结果)和[最小校验入口](contracts/acceptance/README.md#最小校验入口)。
+本阶段的受控设备替身只提交预设执行事实，不创建进程；不能将其测试视为真实平台执行验收。测试与静态检查的复跑入口见[服务端验证入口](#22-启动与管理底座结果)和[最小校验入口](contracts/acceptance/README.md#最小校验入口)。
+
+## 2.5 真实平台执行进展
+
+Agent 已接入本机 full 二次确认、一次性开始许可、真实命令执行、独立有限输出及停止后的进程回收。Windows 创建命令进程时以 Job 属性建立管理边界；Linux/macOS 使用独立进程组。无法确认边界和管道均已回收时报告 `stop_unconfirmed`。降权、结束和断连会停止本机输出采集并触发回收；详情仍以[设备通道](contracts/agent.md)和[任务语义](contracts/tasks.md)为准。
+
+| 验证范围 | 入口 |
+|---|---|
+| 真实服务与 Agent：成功执行、丢失开始许可或结果应答、许可到达前取消和窗口到期、取消与超时、断连和降权；模拟时钟推进跨过首个租约并续租 | [联合测试](../internal/agent/tasks_integration_posix_test.go) |
+| 有限输出、无效 UTF-8、环境隔离、stdin、shell 退出与后台进程、停止回收 | [POSIX 执行器测试](../internal/agent/executor_posix_test.go)、[Windows 执行器测试](../internal/agent/executor_windows_test.go) |
+| MCP 客户端结束或凭据失效后只发无输出回执；保留首次停止原因，后续身份失效仍丢弃输出并取消结果重试 | [联合测试](../internal/agent/tasks_integration_posix_test.go)、[任务测试](../internal/agent/tasks_test.go) |
+| 首次发送锚点、许可核对、经过时间截止、任务事件去重与冲突、回执及结果重试遵守 Retry-After | [任务测试](../internal/agent/tasks_test.go) |
+| full 二次确认未通过时不授权、凭据不回显，以及决定应答未返回时的本机降权 | [终端测试](../cmd/remota-agent/terminal_linux_test.go)、[授权竞态测试](../internal/agent/consent_integration_test.go) |
+| Windows 产品 CLI 经 ConPTY 完成本机 full 二次确认；真实 MCP 命令链路、意图重试只执行一次、许可与结果应答丢失、双流输出上限、取消与超时、MCP 身份失效、本机降权与结束、poll 失败及长命令续租；用原生进程句柄核对父子进程退出。工具发现、协议错误及元数据规则由 2.4 测试承接 | [Windows 端到端验收](../tests/integration/agent_windows_test.go) |
+
+本次已在 WSL Linux amd64 运行真实进程、HTTP 联合测试及 Go 竞态测试；Windows amd64 原生运行了 Agent 输出和进程树取消测试、Job 持有者崩溃探针及普通时钟推进检查，并通过 Linux 服务端、真实 MCP 与 Windows 原生 full Agent 的 10 个端到端场景。长命令实际运行 33 秒，验证持续 poll 续租可跨过首个 30 秒租约；没有以模拟时钟替代该观察。Windows 原生服务端存储初始化问题仍在，macOS 与其他架构没有原生 runner。其余五组目标的 Agent 和测试已交叉编译；真实休眠和完整验收清单尚未验证，因此 2.5 的平台验收门槛尚未全部通过。交叉编译不代表进程回收或休眠行为已在对应平台验证。
+
+Windows 端到端验收从仓库根目录的 PowerShell 运行，需要 Go 1.27.3、支持 ConPTY 的 Windows、可用的 WSL/Linux，以及 Windows 到 WSL 服务的 localhost 转发。`REMOTA_E2E_WSL_DISTRO` 可选指定已安装的发行版，未设置时使用默认发行版：
+
+```powershell
+$env:REMOTA_WINDOWS_E2E = '1'
+go test -mod=readonly -run '^TestWindowsMCPAgent$' -count=1 -v -timeout=6m ./tests/integration
+```
+
+测试自动构建 Windows 产品 Agent 与 Linux 测试服务，在 WSL 临时目录初始化独立 SQLite；全部业务操作经过真实 MCP 或管理 HTTP，秘密通过测试子进程的私有管道和本机终端交付。故障注入与请求计数只位于测试服务，应答丢失须核实原处理成功；每个场景按新增会话 ID 定位，清理先正常结束再强制回收。长命令按 500 毫秒间隔查询，保留真实的跨租约观察。进程和临时状态在结束后清理；未显式启用时跳过该环境专项测试，不将跳过计为平台验收通过。

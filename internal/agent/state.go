@@ -53,15 +53,19 @@ type localState struct {
 	session                   sessionView
 	sessionEnd, decisionEnd   time.Duration
 	activationEnd, leaseEnd   time.Duration
-	serverIssued              time.Time
+	serverIssued, leaseExpiry time.Time
 	seq, revision, generation int64
-	reducing                  bool
+	mode                      string
+	task                      *runningTask
+	tasks                     map[string]*runningTask
+	pollCancel                context.CancelFunc
+	reductionDone             chan struct{}
 	done                      chan struct{}
 	cancel                    func()
 }
 
 func newLocalState(source clock.Source, cancel func()) *localState {
-	return &localState{clock: source, phase: "new", done: make(chan struct{}), cancel: cancel}
+	return &localState{clock: source, phase: "new", mode: "readonly", tasks: make(map[string]*runningTask), done: make(chan struct{}), cancel: cancel}
 }
 
 func (s *localState) endLocked(reason string) {
@@ -70,6 +74,7 @@ func (s *localState) endLocked(reason string) {
 	}
 	s.phase, s.reason = "ended", reason
 	s.generation++
+	s.stopTaskLocked("SESSION_ENDED", 5*time.Second)
 	close(s.done)
 	s.cancel()
 }
@@ -96,6 +101,9 @@ func (s *localState) sampleLocked() (clock.Sample, bool) {
 		(s.phase == "active" || s.phase == "reconnecting" && s.seq > 0) && n.Elapsed >= s.leaseEnd {
 		s.endLocked("lease_expired")
 		return n, false
+	}
+	if s.task != nil && s.task.deadline > 0 && n.Elapsed >= s.task.deadline {
+		s.stopTaskLocked("timed_out", 5*time.Second)
 	}
 	return n, true
 }
@@ -142,14 +150,14 @@ func (s *localState) register(sent clock.Sample, m map[string]any) error {
 	return nil
 }
 
-func (s *localState) decision(sent clock.Sample, m map[string]any) error {
+func (s *localState) decision(sent clock.Sample, m map[string]any, initialMode string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.sampleLocked(); !ok || s.phase != "awaiting_decision" {
 		return ErrProtocol
 	}
 	v, err := readSession(m["session"])
-	if err != nil || !sameSession(s.session, v) || v.state != "active" || v.mode != "readonly" || v.revision != 1 {
+	if err != nil || !sameSession(s.session, v) || v.state != "active" || v.mode != initialMode || v.revision != 1 {
 		return ErrProtocol
 	}
 	value, ok := m["activation_remaining_ms"]
@@ -189,7 +197,22 @@ func (s *localState) pollFailed(generation int64) {
 	if _, ok := s.sampleLocked(); ok && s.generation == generation {
 		s.phase = "reconnecting"
 		s.generation++
+		s.stopTaskLocked("TRANSPORT_LOST", 5*time.Second)
 	}
+}
+
+func (s *localState) beginReductionLocked() bool {
+	if _, ok := s.sampleLocked(); !ok || s.reductionDone != nil {
+		return false
+	}
+	s.reductionDone = make(chan struct{})
+	s.mode, s.phase = "readonly", "reconnecting"
+	s.generation++
+	s.stopTaskLocked("LOCAL_PERMISSION_DENIED", 5*time.Second)
+	if s.pollCancel != nil {
+		s.pollCancel()
+	}
+	return true
 }
 
 func (s *localState) acceptPoll(ctx context.Context, sent clock.Sample, generation int64, m map[string]any) (time.Time, error) {
@@ -206,7 +229,7 @@ func (s *localState) acceptPoll(ctx context.Context, sent clock.Sample, generati
 		s.endLocked("")
 		return time.Time{}, nil
 	}
-	if v.state != "active" || v.mode != "readonly" || v.revision != s.revision {
+	if v.state != "active" || v.mode != s.mode || v.revision != s.revision {
 		return time.Time{}, ErrProtocol
 	}
 	lease, ok := m["lease"].(map[string]any)
@@ -233,7 +256,7 @@ func (s *localState) acceptPoll(ctx context.Context, sent clock.Sample, generati
 		return time.Time{}, ErrProtocol
 	}
 	s.sessionEnd = min(s.sessionEnd, sessionEnd)
-	s.leaseEnd, s.seq, s.phase, s.serverIssued = min(leaseEnd, s.sessionEnd), seq, "active", issued
+	s.leaseEnd, s.seq, s.phase, s.serverIssued, s.leaseExpiry = min(leaseEnd, s.sessionEnd), seq, "active", issued, expires
 	if _, ok = s.sampleLocked(); !ok {
 		return time.Time{}, ErrProtocol
 	}
