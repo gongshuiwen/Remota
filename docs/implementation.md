@@ -1,6 +1,6 @@
 # Remota 第二阶段实施规划
 
-本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.5 真实平台执行进展](#25-真实平台执行进展)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
+本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.6 管理台进展](#26-管理台进展)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
@@ -40,7 +40,7 @@
 
 Go 1.27 已发布新的严格 JSON API；React 官方也提供基于 Vite 的独立应用路径。这里的静态管理台适合该组合，Node 只承担构建和测试。依据见 [Go 1.27](https://go.dev/doc/go1.27)、[React 独立应用](https://react.dev/learn/build-a-react-app-from-scratch)与 [Vite 构建](https://vite.dev/guide/)。
 
-产品依赖固定在根 [go.mod](../go.mod) 与 [go.sum](../go.sum)，基础探针保留独立的 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)。2.2 沿用已验证的 SQLite、Schema 和系统接口版本，并使用 golang.org/x/net v0.62.0 的 [IDNA Lookup](https://pkg.go.dev/golang.org/x/net@v0.62.0/idna)规范化域名；该版本不受 [GO-2026-5026](https://pkg.go.dev/vuln/GO-2026-5026)影响，同时将间接依赖 x/text 更新至 v0.43.0。2.3 使用已验证的 golang.org/x/term v0.47.0 处理终端输入，2.4 接入已验证的官方 MCP SDK v1.8.0。新增或升级依赖后重新验证。前端版本及 package-lock.json 在 2.6 验证后建立，MCP 协议版本继续固定为契约中的 2025-11-25。
+产品依赖固定在根 [go.mod](../go.mod) 与 [go.sum](../go.sum)，基础探针保留独立的 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)。2.2 沿用已验证的 SQLite、Schema 和系统接口版本，并使用 golang.org/x/net v0.62.0 的 [IDNA Lookup](https://pkg.go.dev/golang.org/x/net@v0.62.0/idna)规范化域名；该版本不受 [GO-2026-5026](https://pkg.go.dev/vuln/GO-2026-5026)影响，同时将间接依赖 x/text 更新至 v0.43.0。2.3 使用已验证的 golang.org/x/term v0.47.0 处理终端输入，2.4 接入已验证的官方 MCP SDK v1.8.0。新增或升级依赖后重新验证。前端版本现由 [package.json](../web/package.json) 和 [package-lock.json](../web/package-lock.json) 固定，验证结果见 [2.6](#26-管理台进展)；MCP 协议版本继续固定为契约中的 2025-11-25。
 
 ## 建议项目结构
 
@@ -323,3 +323,51 @@ go test -mod=readonly -run '^TestWindowsMCPAgent$' -count=1 -v -timeout=6m ./tes
 ```
 
 测试自动构建 Windows 产品 Agent 与 Linux 测试服务，在 WSL 临时目录初始化独立 SQLite；全部业务操作经过真实 MCP 或管理 HTTP，秘密通过测试子进程的私有管道和本机终端交付。故障注入与请求计数只位于测试服务，应答丢失须核实原处理成功；每个场景按新增会话 ID 定位，清理先正常结束再强制回收。长命令按 500 毫秒间隔查询，保留真实的跨租约观察。进程和临时状态在结束后清理；未显式启用时跳过该环境专项测试，不将跳过计为平台验收通过。
+
+## 2.6 管理台进展
+
+第一批已接入登录、退出、登录恢复及设备会话、MCP 客户端和凭据的只读快照；入口为 [App.tsx](../web/src/App.tsx)。本机授权与进程事实仍只通过现有 API 的投影展示。搜索和凭据状态筛选在当前页面内执行，统计始终来自完整快照。可见页面每 5 秒刷新，同一时刻最多一个请求；隐藏时暂停，失败保留并标出旧数据。设备会话的 5 分钟提醒、凭据的 7 天提醒及到期估算沿用现有交互规则。
+
+[会话 Hook](../web/src/useAdmin.ts)统一处理登录代际、取消与过期。退出先清除页面数据，再等待服务端确认；401 退出仍清理本地状态，网络失败显示未取得确认。登录与退出请求串行，旧响应、旧 CSRF 和被取消的刷新不能更新后续登录。口令提交后立即清空输入，CSRF 仅在页内存保存；名称、备注和其他远端文本按纯文本渲染。[请求封装](../web/src/api.ts)先核对约定的 HTTP 状态和 JSON 媒体类型，再直接引用权威消息 Schema，以 Ajv Draft 2020-12 和格式断言校验应答，TypeScript 仅声明界面使用的 DTO。
+
+前端使用 Node 22.23.2、npm 10.9.8 完成验证，Node 范围以 package.json 的 engines 为准。React/React DOM 19.3.1、TypeScript 7.0.2、Vite 8.3.8、React 插件 6.3.0、Ajv 8.20.0/ajv-formats 3.0.1、Vitest 5.1.0、Playwright 1.65.0 及全部直接开发依赖均使用精确版本，并提交 npm 锁文件。运行页面不加载外部字体、脚本或图片。
+
+### 开发运行
+
+按 [2.2](#22-启动与管理底座结果)准备已有状态目录后，在 Linux/WSL 的仓库根目录启动后端：
+
+```text
+go run ./cmd/remota-server serve --state-dir ~/.local/state/remota --listen 127.0.0.1:8080 --public-url http://127.0.0.1:5173
+```
+
+另一个终端从仓库根目录启动前端：
+
+```text
+cd web
+npm ci
+npm run dev
+```
+
+浏览器访问 `http://127.0.0.1:5173`，输入初始化时交付的管理员口令。Vite 将 `/api`、`/mcp` 和 `/healthz` 转发到 `http://127.0.0.1:8080`，保留浏览器 Host 和 Origin；后端的 public_url 须与浏览器地址一致。使用其他后端地址时设置 `REMOTA_API_TARGET`，并相应调整服务 public_url；不关闭 Host、Origin 或 CSRF 校验。
+
+### 验证入口与范围
+
+在 web 目录运行：
+
+```text
+npm run format:check
+npm run test
+npm run build
+npx playwright install chromium
+npm run test:browser
+```
+
+Windows 的浏览器测试通过 WSL/Linux 运行真实服务端，需要可用的 localhost 转发和与本机架构相同的 WSL。`REMOTA_E2E_WSL_DISTRO` 可指定发行版，否则使用默认发行版；Linux 直接启动测试服务。服务端测试程序每次运行只编译一次，各浏览器场景分别启动服务并建立独立 SQLite，结束时关闭服务并清理状态；编译或路径转换失败也清理构建目录。测试服务固定占用 `127.0.0.1:18080`，前端固定占用 `127.0.0.1:4173`，场景串行执行，bootstrap 秘密仅经私有管道进入当前场景夹具。已安装 Edge 时可设置 `REMOTA_BROWSER_CHANNEL=msedge` 使用该浏览器；本次实际使用 Windows 原生 Edge（Chromium）验收，并检查了桌面与移动端截图，三个场景使用 `--repeat-each=2` 共六次执行通过。
+
+| 验证范围 | 入口 |
+|---|---|
+| 刷新单请求与隐藏暂停、失败保留旧数据、401/到期/身份变更清理、旧成功或失败响应不能跨登录、退出结果未知与认证请求串行、Schema 拒绝、筛选与数据清除 | [组件与会话用例](../web/src/useAdmin.test.tsx) |
+| 应答状态与 JSON 媒体类型、编译失败后的目录清理与原始错误保留 | [请求校验](../web/src/api.test.ts)、[启动器异常清理](../web/e2e/server.test.ts) |
+| 真实 HTTP 登录正反例、HttpOnly/SameSite/Path Cookie、JS 无法读取 Cookie、错误 CSRF 被拒绝、三类列表与筛选、纯文本渲染、退出网络失败后重新登录、重载恢复和身份失效、移动端无页面横向溢出 | [3 个浏览器场景](../web/e2e/console.spec.ts)、[Linux 测试服务](../tests/integration/console_linux_test.go) |
+
+本批尚未实现备注修改、结束会话或客户端、凭据签发/轮换/撤销、一次性秘密弹窗和中英文切换。构建产物位于 web/dist，服务端静态资源内嵌及真实 HTTPS 浏览器验收留待后续集成；当前仅提供开发入口。Windows 原生服务端存储问题及各平台原生验收缺口继续按前文记录处理。
