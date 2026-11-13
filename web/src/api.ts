@@ -38,7 +38,36 @@ export interface Credential {
   created_at: string;
   expires_at: string;
   effects_count: { live_sessions: number; live_clients: number; unsettled_tasks: number };
+  creation_operation_id: string;
+  rotated_from_id?: string;
 }
+
+export interface CredentialIssue {
+  credential: Credential;
+  secret: string;
+  effects: { sessions_ended: number; clients_ended: number; tasks_stop_requested: number };
+  management_revision: number;
+}
+
+export type CredentialChange =
+  | {
+      kind: 'createCredential';
+      input: {
+        operation_id: string;
+        kind: 'access' | 'mcp';
+        name: string;
+        expires_in_seconds?: number;
+        allow_exec?: boolean;
+      };
+    }
+  | {
+      kind: 'rotateCredential';
+      id: string;
+      input: { operation_id: string; expires_in_seconds?: number };
+    }
+  | { kind: 'revokeCredential'; id: string };
+
+export type AdminChange = ResourceChange | CredentialChange;
 
 export interface Snapshot {
   server: {
@@ -89,10 +118,25 @@ const endSessionModel = validator.compile<{ session: { id: string; state: string
 const endClientModel = validator.compile<{ client: { id: string; lifecycle: string } }>({
   $ref: `${schema.$id}#/$defs/MCPClientEndResponse`,
 });
+const credentialIssueModel = validator.compile<CredentialIssue>({
+  $ref: `${schema.$id}#/$defs/CredentialIssue`,
+});
+const credentialRevokeModel = validator.compile<{ credential: Credential }>({
+  $ref: `${schema.$id}#/$defs/CredentialRevokeResponse`,
+});
 
 export type ResourceChange =
   | { kind: 'note'; id: string; note: string; expected_note_revision: number }
-  | { kind: 'endSession' | 'endClient'; id: string };
+  | { kind: 'endSession'; id: string }
+  | { kind: 'endClient'; id: string };
+
+export function isCredentialChange(change: AdminChange): change is CredentialChange {
+  return (
+    change.kind === 'createCredential' ||
+    change.kind === 'rotateCredential' ||
+    change.kind === 'revokeCredential'
+  );
+}
 
 const isJSON = (response: Response) =>
   /^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?$/i.test(
@@ -111,7 +155,7 @@ export class ApiError extends Error {
 async function request(
   path: string,
   signal: AbortSignal,
-  expectedStatus: 200 | 204,
+  expectedStatus: 200 | 201 | 204,
   {
     body,
     csrf,
@@ -180,4 +224,41 @@ export async function changeResource(
       ? endSessionModel(body) && body.session.id === change.id && body.session.state === 'ended'
       : endClientModel(body) && body.client.id === change.id && body.client.lifecycle === 'ended';
   if (!valid || response.headers.get('X-Remota-Epoch') !== epoch) throw new ApiError(0);
+}
+
+export async function changeCredential(
+  change: CredentialChange,
+  csrf: string,
+  epoch: string,
+  signal: AbortSignal,
+): Promise<CredentialIssue | undefined> {
+  const path =
+    change.kind === 'createCredential'
+      ? 'credentials'
+      : `credentials/${encodeURIComponent(change.id)}/${change.kind === 'rotateCredential' ? 'rotate' : 'revoke'}`;
+  const response = await request(path, signal, change.kind === 'revokeCredential' ? 200 : 201, {
+    body: change.kind === 'revokeCredential' ? {} : change.input,
+    csrf,
+  });
+  const body: unknown = await response.json();
+  if (response.headers.get('X-Remota-Epoch') !== epoch) throw new ApiError(0);
+  if (change.kind === 'revokeCredential') {
+    if (
+      !credentialRevokeModel(body) ||
+      body.credential.id !== change.id ||
+      body.credential.status !== 'revoked'
+    )
+      throw new ApiError(0);
+    return;
+  }
+  if (
+    !credentialIssueModel(body) ||
+    body.credential.creation_operation_id !== change.input.operation_id ||
+    body.credential.status !== 'active' ||
+    (change.kind === 'createCredential'
+      ? body.credential.kind !== change.input.kind
+      : body.credential.rotated_from_id !== change.id || body.credential.id === change.id)
+  )
+    throw new ApiError(0);
+  return body;
 }

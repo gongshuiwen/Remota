@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, changeResource, readSnapshot, signIn, signOut } from './api';
-import type { ResourceChange, Snapshot } from './api';
+import {
+  ApiError,
+  changeCredential,
+  changeResource,
+  isCredentialChange,
+  readSnapshot,
+  signIn,
+  signOut,
+} from './api';
+import type { AdminChange, CredentialIssue, Snapshot } from './api';
 
 export interface ChangeResult {
   kind: 'success' | 'conflict' | 'failed' | 'unknown';
   message: string;
+  issue?: CredentialIssue;
 }
 
 type View =
@@ -105,7 +114,7 @@ export function useAdmin() {
     [clear],
   );
 
-  const mutate = async (change: ResourceChange): Promise<ChangeResult | undefined> => {
+  const mutate = async (change: AdminChange): Promise<ChangeResult | undefined> => {
     const current = identity.current;
     if (!current?.epoch || authenticating.current || writing.current || needsCheck.current) return;
     const version = generation.current;
@@ -117,12 +126,25 @@ export function useAdmin() {
       value.kind === 'signedIn' ? { ...value, refreshing: false, mutating: true } : value,
     );
     try {
+      const credential = isCredentialChange(change);
       let result: ChangeResult;
       try {
-        await changeResource(change, current.csrf, current.epoch, controller.signal);
+        const issue = credential
+          ? await changeCredential(change, current.csrf, current.epoch, controller.signal)
+          : await changeResource(change, current.csrf, current.epoch, controller.signal);
+        let message = '结束操作已确认。回收状态以列表为准。';
+        if (credential) {
+          message =
+            change.kind === 'revokeCredential'
+              ? '凭据已撤销。关联停止请求不代表进程已回收。'
+              : '凭据已签发，秘密仅交付本次。';
+        } else if (change.kind === 'note') {
+          message = '备注已保存。';
+        }
         result = {
           kind: 'success',
-          message: change.kind === 'note' ? '备注已保存。' : '结束操作已确认。回收状态以列表为准。',
+          message,
+          ...(issue ? { issue } : {}),
         };
       } catch (error) {
         if (version !== generation.current || controller.signal.aborted) return;
@@ -132,18 +154,40 @@ export function useAdmin() {
           return;
         }
         if (code === 'INVALID_ARGUMENT')
-          return { kind: 'failed', message: '备注最多 512 个字符，且不能包含控制字符。' };
+          return {
+            kind: 'failed',
+            message: credential
+              ? '凭据参数无效，请核对名称、权限和有效期。'
+              : '备注最多 512 个字符，且不能包含控制字符。',
+          };
         if (code === 'HOST_DENIED' || code === 'ORIGIN_DENIED')
           return { kind: 'failed', message: '服务拒绝了当前页面来源，请检查访问地址。' };
-        result =
-          code === 'REVISION_CONFLICT'
-            ? { kind: 'conflict', message: '备注已被其他操作修改。草稿已保留，请核对当前备注。' }
-            : code === 'SESSION_ENDED' || code === 'NOT_FOUND'
-              ? { kind: 'failed', message: '目标已结束或不存在，请查看最新快照。' }
-              : {
-                  kind: 'unknown',
-                  message: '未取得操作确认，结果未知。不会自动重试，请核对最新快照。',
-                };
+        switch (code) {
+          case 'CREDENTIAL_OPERATION_EXISTS':
+            result = {
+              kind: 'conflict',
+              message: '该签发已有记录，秘密不会再次交付，请核对关联凭据。',
+            };
+            break;
+          case 'CREDENTIAL_REVOKED':
+            result = { kind: 'failed', message: '凭据已撤销，无法轮换。' };
+            break;
+          case 'REVISION_CONFLICT':
+            result = {
+              kind: 'conflict',
+              message: '备注已被其他操作修改。草稿已保留，请核对当前备注。',
+            };
+            break;
+          case 'SESSION_ENDED':
+          case 'NOT_FOUND':
+            result = { kind: 'failed', message: '目标已结束或不存在，请查看最新快照。' };
+            break;
+          default:
+            result = {
+              kind: 'unknown',
+              message: '未取得操作确认，结果未知。不会自动重试，请核对最新快照。',
+            };
+        }
       }
       if (version !== generation.current || controller.signal.aborted) return;
       const checkRequired = result.kind === 'unknown' || result.kind === 'conflict';
@@ -152,7 +196,13 @@ export function useAdmin() {
         value.kind === 'signedIn' ? { ...value, needsCheck: checkRequired } : value,
       );
       if (document.visibilityState !== 'hidden') await refresh(true);
-      if (version === generation.current && !controller.signal.aborted) return result;
+      if (version === generation.current && !controller.signal.aborted) {
+        if (result.issue && view.kind === 'signedIn' && view.deadline <= Date.now()) {
+          clear('登录已到期，请重新登录。');
+          return;
+        }
+        return result;
+      }
     } finally {
       if (writing.current === controller) {
         writing.current = null;

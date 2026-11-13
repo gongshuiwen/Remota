@@ -2,8 +2,10 @@ import { useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useAdmin } from './useAdmin';
 import type { ChangeResult } from './useAdmin';
-import type { Credential, MCPClient, ResourceChange, Session, Snapshot } from './api';
+import type { AdminChange, Credential, MCPClient, ResourceChange, Session, Snapshot } from './api';
 import ResourceAction from './ResourceAction';
+import CredentialAction from './CredentialAction';
+import type { CredentialTarget } from './CredentialAction';
 import s from './App.module.css';
 
 type IconName = 'devices' | 'clients' | 'credentials' | 'refresh' | 'exit' | 'search' | 'shield';
@@ -264,13 +266,13 @@ function Dashboard({
   error?: string;
   onRefresh: () => Promise<boolean>;
   onLogout: () => Promise<void>;
-  onChange: (change: ResourceChange) => Promise<ChangeResult | undefined>;
+  onChange: (change: AdminChange) => Promise<ChangeResult | undefined>;
 }) {
   const [tab, setTab] = useState<Tab>('devices');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [transportOpen, setTransportOpen] = useState(false);
-  const [action, setAction] = useState<ResourceChange>();
+  const [action, setAction] = useState<ResourceChange | CredentialTarget>();
   const now = Date.parse(snapshot.server_time) + Math.max(0, performance.now() - receivedAt);
   const needle = query.toLowerCase();
   const match = (...fields: (string | undefined)[]) =>
@@ -394,18 +396,35 @@ function Dashboard({
               {error}
             </div>
           )}
-          {action && (
-            <ResourceAction
-              key={`${action.kind}:${action.id}`}
-              initial={action}
-              snapshot={snapshot}
-              pending={mutating}
-              needsCheck={needsCheck}
-              onSubmit={onChange}
-              onRefresh={onRefresh}
-              onClose={() => setAction(undefined)}
-            />
-          )}
+          {action &&
+            (action.kind === 'note' ||
+            action.kind === 'endSession' ||
+            action.kind === 'endClient' ? (
+              <ResourceAction
+                key={`${action.kind}:${action.id}`}
+                initial={action}
+                snapshot={snapshot}
+                pending={mutating}
+                needsCheck={needsCheck}
+                onSubmit={onChange}
+                onRefresh={onRefresh}
+                onClose={() => setAction(undefined)}
+              />
+            ) : (
+              <CredentialAction
+                key={
+                  action.kind === 'createCredential' ? action.kind : `${action.kind}:${action.id}`
+                }
+                initial={action}
+                snapshot={snapshot}
+                pending={mutating}
+                needsCheck={needsCheck}
+                onSubmit={onChange}
+                onRefresh={onRefresh}
+                onClose={() => setAction(undefined)}
+                onAction={setAction}
+              />
+            ))}
           <dl className={s.metrics}>
             <div>
               <dt>有效设备会话</dt>
@@ -469,6 +488,15 @@ function Dashboard({
                   <option value="revoked">已撤销</option>
                 </select>
               )}
+              {tab === 'credentials' && (
+                <button
+                  className={s.secondaryButton}
+                  disabled={mutating || action?.kind === 'createCredential'}
+                  onClick={() => setAction({ kind: 'createCredential' })}
+                >
+                  签发凭据
+                </button>
+              )}
               <span className={s.matchCount}>
                 匹配 {visibleCount} / 全部 {allCounts[tab]}
               </span>
@@ -525,7 +553,12 @@ function Dashboard({
                     onAction={setAction}
                   />
                 ) : (
-                  <CredentialsTable values={credentials} now={now} />
+                  <CredentialsTable
+                    values={credentials}
+                    now={now}
+                    pending={mutating}
+                    onAction={setAction}
+                  />
                 )}
               </div>
             )}
@@ -750,9 +783,19 @@ function ClientsTable({
   );
 }
 
-function CredentialsTable({ values, now }: { values: Credential[]; now: number }) {
+function CredentialsTable({
+  values,
+  now,
+  pending,
+  onAction,
+}: {
+  values: Credential[];
+  now: number;
+  pending: boolean;
+  onAction: (target: CredentialTarget) => void;
+}) {
   return (
-    <RecordTable headers={['凭据', '类型', '状态', '关联资源', '到期时间']}>
+    <RecordTable headers={['凭据', '类型', '状态', '关联资源', '到期时间', '操作']}>
       {values.map((value) => (
         <tr key={value.id}>
           <td>
@@ -783,6 +826,26 @@ function CredentialsTable({ values, now }: { values: Credential[]; now: number }
           </td>
           <td>
             <Expiry value={value.expires_at} now={now} />
+          </td>
+          <td>
+            {value.status !== 'revoked' && (
+              <div className={s.rowActions}>
+                <button
+                  className={s.textButton}
+                  disabled={pending}
+                  onClick={() => onAction({ kind: 'rotateCredential', id: value.id })}
+                >
+                  轮换凭据
+                </button>
+                <button
+                  className={s.dangerText}
+                  disabled={pending}
+                  onClick={() => onAction({ kind: 'revokeCredential', id: value.id })}
+                >
+                  撤销凭据
+                </button>
+              </div>
+            )}
           </td>
         </tr>
       ))}

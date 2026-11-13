@@ -1,6 +1,10 @@
 import { expect, test as base } from '@playwright/test';
 import type { APIRequestContext, Page } from '@playwright/test';
 import { origin, startServer } from './server';
+import type { Snapshot } from '../src/api';
+
+// Failure snapshots include input values even when password-masked.
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
 
 type Service = Awaited<ReturnType<typeof startServer>>;
 const test = base.extend<{ service: Service }>({
@@ -115,6 +119,54 @@ async function seedLists(request: APIRequestContext, service: Service) {
 test.beforeEach(async ({ page }) => {
   await page.goto('/');
 });
+
+test.afterEach(({}, testInfo) => {
+  // Locator assertions attach their own snapshots, separately from the fallback above.
+  for (const error of testInfo.errors) delete error.errorContext;
+});
+
+async function openCredential(page: Page, name: string, kind: 'access' | 'mcp' = 'access') {
+  await page.getByRole('button', { name: /^凭据/ }).click();
+  await page.getByRole('button', { name: '签发凭据', exact: true }).click();
+  const form = page.getByRole('form', { name: '签发凭据' });
+  await form.getByLabel('凭据类型').selectOption(kind);
+  await form.getByLabel('凭据名称').fill(name);
+  return form;
+}
+
+async function receiveSecret(page: Page, checkCopy = false) {
+  const dialog = page.getByRole('dialog', { name: '一次性秘密' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('凭据秘密')).toHaveAttribute('type', 'password');
+  const secret = await dialog.getByLabel('凭据秘密').inputValue();
+  const id = (await dialog.locator('code').textContent())!;
+  if (checkCopy) {
+    await page.evaluate(() =>
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: () => Promise.reject(new Error('denied')) },
+      }),
+    );
+    await dialog.getByRole('button', { name: '复制秘密', exact: true }).click();
+    await expect(dialog.getByRole('status')).toContainText('复制失败');
+    await dialog.getByRole('button', { name: '显示秘密', exact: true }).click();
+    await expect(dialog.getByLabel('凭据秘密')).toHaveAttribute('type', 'text');
+  }
+  if (checkCopy) await dialog.getByRole('button', { name: '我已保存，关闭', exact: true }).click();
+  else await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  expect((await page.content()).includes(secret)).toBe(false);
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  return { id, secret };
+}
+
+async function snapshot(page: Page): Promise<Snapshot> {
+  return page.evaluate(async () => {
+    const response = await fetch('/api/v1/admin/state', { cache: 'no-store' });
+    if (response.status !== 200) throw new Error('Cannot read browser-test snapshot');
+    return response.json();
+  });
+}
 
 test('真实登录、只读列表、搜索与 Cookie/CSRF', async ({
   page,
@@ -320,3 +372,168 @@ test('修改已处理但应答丢失时核对真实快照，不自动重发', as
   expect(writes).toBe(2);
   await expect(page.getByRole('button', { name: '确认结束', exact: true })).toHaveCount(0);
 });
+
+test('access 签发、轮换和撤销形成真实鉴权闭环，秘密关闭后不保留', async ({
+  page,
+  request,
+  service,
+}, testInfo) => {
+  const unrelated = await registerSession(request, service.access);
+  await login(page, service.password);
+  const form = await openCredential(page, '设备凭据验收');
+  await form.getByLabel('有效期数量（留空使用服务默认值）').fill('1');
+  await form.getByLabel('有效期单位').selectOption('3600');
+  await form.getByRole('button', { name: '签发凭据', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '一次性秘密' });
+  await expect(dialog).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath('credential-secret-mobile.png'),
+    fullPage: true,
+  });
+  const original = await receiveSecret(page, true);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const first = await registerSession(request, original.secret);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '设备会话', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: /^凭据/ }).click();
+  await page
+    .getByRole('row')
+    .filter({ hasText: original.id })
+    .getByRole('button', { name: '轮换凭据', exact: true })
+    .click();
+  await page.getByRole('button', { name: '确认轮换', exact: true }).click();
+  const rotated = await receiveSecret(page);
+  expect(rotated.secret !== original.secret).toBe(true);
+  const next = await registerSession(request, rotated.secret);
+  expect(
+    (
+      await request.post('/api/v1/agent/sessions', {
+        headers: { Authorization: `Bearer ${original.secret}` },
+        data: {},
+      })
+    ).status(),
+  ).toBe(401);
+  let state = await snapshot(page);
+  expect(state.sessions.find((value) => value.id === first.session.id)?.state).toBe('ended');
+  expect(state.sessions.find((value) => value.id === unrelated.session.id)?.state).toBe('pending');
+  expect(state.credentials.find((value) => value.id === rotated.id)?.rotated_from_id).toBe(
+    original.id,
+  );
+  await page
+    .getByRole('row')
+    .filter({ hasText: rotated.id })
+    .getByRole('button', { name: '撤销凭据', exact: true })
+    .click();
+  await page.getByRole('button', { name: '确认撤销', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('凭据已撤销');
+  state = await snapshot(page);
+  expect(state.sessions.find((value) => value.id === next.session.id)?.state).toBe('ended');
+  expect(state.sessions.find((value) => value.id === unrelated.session.id)?.state).toBe('pending');
+  expect(state.credentials.find((value) => value.id === rotated.id)?.status).toBe('revoked');
+  expect(
+    (
+      await request.post('/api/v1/agent/sessions', {
+        headers: { Authorization: `Bearer ${rotated.secret}` },
+        data: {},
+      })
+    ).status(),
+  ).toBe(401);
+  expect(await page.evaluate(() => localStorage.length + sessionStorage.length)).toBe(0);
+  expect(page.url().includes(rotated.secret)).toBe(false);
+});
+
+test('MCP 权限按明确选择签发并由轮换继承，撤销只影响关联客户端', async ({
+  page,
+  request,
+  service,
+}) => {
+  const device = await registerSession(request, service.access);
+  await login(page, service.password);
+  const form = await openCredential(page, '命令申请凭据', 'mcp');
+  await form.getByRole('checkbox').check();
+  await form.getByRole('button', { name: '签发凭据', exact: true }).click();
+  const original = await receiveSecret(page);
+  await connectClient(request, original.secret);
+  await page
+    .getByRole('row')
+    .filter({ hasText: original.id })
+    .getByRole('button', { name: '轮换凭据', exact: true })
+    .click();
+  await page.getByRole('button', { name: '确认轮换', exact: true }).click();
+  const rotated = await receiveSecret(page);
+  let state = await snapshot(page);
+  const meta = state.credentials.find((value) => value.id === rotated.id)!;
+  expect(meta.kind).toBe('mcp');
+  expect(meta.name).toBe('命令申请凭据');
+  expect(meta.allow_exec).toBe(true);
+  const originalClients = state.clients.filter((value) => value.credential_id === original.id);
+  expect(originalClients).toHaveLength(1);
+  expect(originalClients[0]!.lifecycle).toBe('ended');
+  await connectClient(request, rotated.secret);
+  await page
+    .getByRole('row')
+    .filter({ hasText: rotated.id })
+    .getByRole('button', { name: '撤销凭据', exact: true })
+    .click();
+  await page.getByRole('button', { name: '确认撤销', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('凭据已撤销');
+  state = await snapshot(page);
+  const rotatedClients = state.clients.filter((value) => value.credential_id === rotated.id);
+  expect(rotatedClients).toHaveLength(1);
+  expect(rotatedClients[0]!.lifecycle).toBe('ended');
+  expect(state.sessions.find((value) => value.id === device.session.id)?.state).toBe('pending');
+});
+
+for (const action of ['create', 'rotate'] as const) {
+  test(`${action} 签发已提交但应答丢失，按关联 ID 核对后显式撤销`, async ({ page, service }) => {
+    await login(page, service.password);
+    const initial = await snapshot(page);
+    const source = initial.credentials.find((value) => value.kind === 'access')!;
+    await page.getByRole('button', { name: /^凭据/ }).click();
+    let path: string;
+    if (action === 'create') {
+      const form = await openCredential(page, '丢失秘密的凭据');
+      path = '**/api/v1/admin/credentials';
+      await expect(form).toBeVisible();
+    } else {
+      await page
+        .getByRole('row')
+        .filter({ hasText: source.id })
+        .getByRole('button', { name: '轮换凭据', exact: true })
+        .click();
+      path = `**/api/v1/admin/credentials/${source.id}/rotate`;
+    }
+    let writes = 0;
+    let operation = '';
+    await page.route(path, async (route) => {
+      writes++;
+      operation = route.request().postDataJSON().operation_id as string;
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      await route.abort();
+    });
+    const form = page.getByRole('form', { name: action === 'create' ? '签发凭据' : '轮换凭据' });
+    await form
+      .getByRole('button', { name: action === 'create' ? '签发凭据' : '确认轮换', exact: true })
+      .click();
+    await expect(page.getByRole('alert')).toContainText('秘密无法再次取回');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    const state = await snapshot(page);
+    const found = state.credentials.find((value) => value.creation_operation_id === operation)!;
+    expect(found).toBeDefined();
+    expect('secret' in found).toBe(false);
+    expect(writes).toBe(1);
+    if (action === 'rotate')
+      expect(state.credentials.find((value) => value.id === source.id)?.status).toBe('revoked');
+    await page.getByRole('button', { name: '撤销此凭据', exact: true }).click();
+    await page.getByRole('button', { name: '确认撤销', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText('凭据已撤销');
+    expect((await snapshot(page)).credentials.find((value) => value.id === found.id)?.status).toBe(
+      'revoked',
+    );
+    expect(writes).toBe(1);
+  });
+}

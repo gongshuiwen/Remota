@@ -190,13 +190,14 @@ func TestAdminCredentialLifecycle(t *testing.T) {
 	must(t, err)
 	r = h.do(t, "POST", "/api/v1/admin/credentials", createBody(op, "access"), nil)
 	wantError(t, r, 409, "CREDENTIAL_OPERATION_EXISTS")
-	if r.value["error"].(map[string]any)["details"].(map[string]any)["resource_id"] != id {
-		t.Fatal("operation result cannot be reconciled")
+	if _, hasSecret := r.value["secret"]; hasSecret || r.value["error"].(map[string]any)["details"].(map[string]any)["resource_id"] != id {
+		t.Fatal("duplicate create must return only the existing credential metadata")
 	}
 	invalidName := fmt.Sprintf(`{"operation_id":%q,"kind":"mcp","name":%q}`, op, strings.Repeat("界", 27))
 	r = h.do(t, "POST", "/api/v1/admin/credentials", invalidName, nil)
 	wantError(t, r, 400, "INVALID_ARGUMENT")
-	rotate := fmt.Sprintf(`{"operation_id":%q}`, strings.Repeat("b", 32))
+	rotationOperation := strings.Repeat("b", 32)
+	rotate := fmt.Sprintf(`{"operation_id":%q}`, rotationOperation)
 	r = h.do(t, "POST", "/api/v1/admin/credentials/"+id+"/rotate", rotate, nil)
 	checkStatus(t, r, 201)
 	newID := r.value["credential"].(map[string]any)["id"].(string)
@@ -206,6 +207,11 @@ func TestAdminCredentialLifecycle(t *testing.T) {
 	}
 	_, err = h.s.Core.AuthenticateCredential(newSecret, "mcp")
 	must(t, err)
+	r = h.do(t, "POST", "/api/v1/admin/credentials", createBody(rotationOperation, "access"), nil)
+	wantError(t, r, 409, "CREDENTIAL_OPERATION_EXISTS")
+	if _, hasSecret := r.value["secret"]; hasSecret || r.value["error"].(map[string]any)["details"].(map[string]any)["resource_id"] != newID {
+		t.Fatal("create and rotate must share operation IDs without replaying secrets")
+	}
 	r = h.do(t, "POST", "/api/v1/admin/credentials/"+id+"/revoke", "{}", nil)
 	checkStatus(t, r, 200)
 	if r.value["management_revision"] != float64(3) {
