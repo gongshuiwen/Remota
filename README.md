@@ -12,7 +12,7 @@
 |---|---|
 | 组件、状态归属与部署边界 | [整体架构](docs/architecture.md) |
 | HTTP、身份、期限、错误与规则归属 | [契约总则](docs/contracts/README.md) |
-| Agent、Admin 与健康检查的机器可读 HTTP 契约 | [OpenAPI YAML](docs/contracts/openapi.yaml) |
+| Agent、Admin 与健康检查的机器可读 HTTP 契约 | [OpenAPI YAML](api/openapi.yaml) |
 | 设备接入、本机授权与租约 | [设备通道](docs/contracts/agent.md) |
 | 命令、开始许可、证据与结算 | [任务语义](docs/contracts/tasks.md) |
 | 管理登录、快照与凭据 | [管理员通道](docs/contracts/admin.md) |

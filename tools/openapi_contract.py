@@ -1,6 +1,8 @@
 """Offline OpenAPI validation and deterministic views of the authoritative YAML."""
 import json
+import os
 import re
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 import yaml
 from jsonschema_path import SchemaPath
@@ -8,13 +10,10 @@ from openapi_spec_validator import OpenAPIV31SpecValidator
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT202012
 
+SCHEMA_REF = "../docs/contracts/schemas/messages.schema.json#/$defs/"
+
 
 class StrictLoader(yaml.SafeLoader):
-    def compose_node(self, parent, index):
-        if self.check_event(yaml.AliasEvent):
-            raise ValueError("OpenAPI YAML aliases are not supported; use $ref")
-        return super().compose_node(parent, index)
-
     def construct_mapping(self, node, deep=False):
         result = {}
         for key_node, value_node in node.value:
@@ -29,7 +28,7 @@ class StrictLoader(yaml.SafeLoader):
 
 def read_yaml(text):
     document = yaml.load(text, Loader=StrictLoader)
-    # Reject non-JSON scalars (timestamps, non-finite floats, binary values, etc.).
+    # Reject cyclic aliases and non-JSON scalars (timestamps, non-finite floats, etc.).
     json.dumps(document, allow_nan=False)
     if not isinstance(document, dict):
         raise ValueError("OpenAPI YAML must contain an object")
@@ -47,12 +46,64 @@ def walk(value):
 
 
 def pointer(document, reference):
+    if reference in ("", "#"):
+        return document
     if not reference.startswith("#/"):
         raise ValueError("expected a local OpenAPI reference: " + reference)
     value = document
     for part in reference[2:].split("/"):
         value = value[part.replace("~1", "/").replace("~0", "~")]
     return value
+
+
+def load(root):
+    """Assemble local OpenAPI objects; keep the shared message catalog external."""
+    folder = (root / "api").resolve()
+    entry = folder / "openapi.yaml"
+    catalog = (root / "docs/contracts/schemas/messages.schema.json").resolve()
+    documents = {}
+
+    def read(path):
+        if not path.is_relative_to(folder) or path.suffix != ".yaml":
+            raise ValueError("OpenAPI reference outside api/: " + str(path))
+        if path not in documents:
+            documents[path] = read_yaml(path.read_text(encoding="utf-8"))
+        return documents[path]
+
+    def expand(value, owner, active=frozenset()):
+        if isinstance(value, list):
+            return [expand(child, owner, active) for child in value]
+        if not isinstance(value, dict):
+            return value
+        if "$ref" in value:
+            if set(value) != {"$ref"}:
+                raise ValueError("OpenAPI references must be pure $ref; edit the referenced object instead")
+            reference = urlsplit(value["$ref"])
+            if reference.scheme or reference.netloc or reference.query:
+                raise ValueError("external OpenAPI resource forbidden: " + value["$ref"])
+            target = (owner.parent / unquote(reference.path)).resolve() if reference.path else owner
+            fragment = "#" + unquote(reference.fragment) if reference.fragment else ""
+            if target == catalog:
+                if not re.fullmatch(r"#/\$defs/\w+", fragment):
+                    raise ValueError("message reference must select a canonical model")
+                return {"$ref": SCHEMA_REF + fragment.rsplit("/", 1)[1]}
+            if target == entry and fragment.startswith("#/components/"):
+                pointer(read(entry), fragment)
+                return {"$ref": fragment}
+            key = (target, fragment)
+            if key in active:
+                raise ValueError("cyclic OpenAPI object reference: " + value["$ref"])
+            return expand(pointer(read(target), fragment), target, active | {key})
+        result = {key: expand(child, owner, active) for key, child in value.items()}
+        if "externalDocs" in result:
+            url = urlsplit(result["externalDocs"]["url"])
+            if not url.scheme and not url.netloc:
+                destination = (owner.parent / unquote(url.path)).resolve()
+                relative = os.path.relpath(destination, folder).replace("\\", "/")
+                result["externalDocs"]["url"] = urlunsplit(("", "", relative, url.query, url.fragment))
+        return result
+
+    return expand(read(entry), entry)
 
 
 def resolve(document, value):
@@ -70,7 +121,7 @@ def model(document, schema):
     if set(schema) != {"$ref"}:
         raise ValueError("HTTP message schemas must only reference the canonical message catalog")
     value = resolve(document, schema)
-    match = re.fullmatch(r"\./schemas/messages\.schema\.json#/\$defs/(\w+)", value.get("$ref", ""))
+    match = re.fullmatch(re.escape(SCHEMA_REF) + r"(\w+)", value.get("$ref", ""))
     if not match or len(value) != 1:
         raise ValueError("HTTP message schemas must reference the canonical message catalog")
     return match[1]
@@ -83,10 +134,10 @@ def operations(document):
                 yield path, method, operation
 
 
-def validate(document, contracts, catalog, fixtures, validator_class, formats):
-    source_uri = (contracts / "openapi.yaml").as_uri()
-    catalog_uri = (contracts / "schemas/messages.schema.json").as_uri()
-    prefix = "./schemas/messages.schema.json#/$defs/"
+def validate(document, root, catalog, fixtures, validator_class, formats):
+    source_uri = (root / "api/openapi.yaml").as_uri()
+    catalog_uri = (root / "docs/contracts/schemas/messages.schema.json").as_uri()
+    prefix = SCHEMA_REF
     if document.get("openapi") != "3.1.2":
         raise ValueError("HTTP contract must use OpenAPI 3.1.2")
     # Preflight every reference before invoking library resolvers. Only this local
@@ -162,7 +213,7 @@ def validate(document, contracts, catalog, fixtures, validator_class, formats):
 
 def test_index(document):
     """Resolve OpenAPI objects once; Go consumes bindings, not OpenAPI syntax."""
-    index = {"generated_from": "openapi.yaml; DO NOT EDIT; use --refresh-openapi",
+    index = {"generated_from": "api/openapi.yaml; DO NOT EDIT; use --refresh-openapi",
              "headers": {}, "responses": {}, "operations": []}
 
     def response_id(value, name):
@@ -204,7 +255,7 @@ def generated_json(document):
 def endpoint_table(document, channel):
     prefix = "/api/v1/" + channel
     lines = ["<!-- BEGIN GENERATED OPENAPI: " + channel + " -->",
-             "<!-- Generated from openapi.yaml; use --refresh-openapi. -->",
+             "<!-- Generated from api/openapi.yaml; use --refresh-openapi. -->",
              "| 方法与路径 | 请求 Schema | 成功响应（状态、Schema） |", "|---|---|---|"]
     for path, method, operation in operations(document):
         if not path.startswith(prefix + "/"):
@@ -223,8 +274,9 @@ def endpoint_table(document, channel):
     return "\n".join(lines)
 
 
-def sync_views(document, contracts, refresh):
-    destination = contracts / "http.generated.json"
+def sync_views(document, root, refresh):
+    contracts = root / "docs/contracts"
+    destination = root / "api/http.generated.json"
     expected = generated_json(document)
     if refresh:
         destination.write_text(expected, encoding="utf-8", newline="\n")

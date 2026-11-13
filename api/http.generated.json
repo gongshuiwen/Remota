@@ -1,5 +1,5 @@
 {
-  "generated_from": "openapi.yaml; DO NOT EDIT; use --refresh-openapi",
+  "generated_from": "api/openapi.yaml; DO NOT EDIT; use --refresh-openapi",
   "headers": {
     "#/components/headers/X-Request-ID": {
       "required": true,

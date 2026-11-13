@@ -58,13 +58,13 @@ var load = sync.OnceValues(func() (*Contract, error) {
 	}
 	var data []byte
 	for {
-		data, err = os.ReadFile(filepath.Join(dir, "docs", "contracts", "http.generated.json"))
+		data, err = os.ReadFile(filepath.Join(dir, "api", "http.generated.json"))
 		if err == nil || !errors.Is(err, os.ErrNotExist) {
 			break
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return nil, fmt.Errorf("HTTP contract index missing; retain docs/contracts beside the tests or in a parent directory")
+			return nil, fmt.Errorf("HTTP contract index missing; retain api beside the tests or in a parent directory")
 		}
 		dir = parent
 	}

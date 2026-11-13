@@ -99,9 +99,9 @@ def main():
         raise ValueError("date-time assertion is unavailable")
     failures = []
     counts = {"valid": 0, "invalid": 0, "raw_json": 0, "markdown": 0, "links": 0, "mcp": 0}
-    openapi = openapi_contract.read_yaml((contracts / "openapi.yaml").read_text(encoding="utf-8"))
-    counts.update(openapi_contract.validate(openapi, contracts, catalog, fixtures, ContractValidator, formats))
-    openapi_contract.sync_views(openapi, contracts, args.refresh_openapi)
+    openapi = openapi_contract.load(root)
+    counts.update(openapi_contract.validate(openapi, root, catalog, fixtures, ContractValidator, formats))
+    openapi_contract.sync_views(openapi, root, args.refresh_openapi)
 
     def require(condition, label):
         if not condition:
@@ -232,7 +232,7 @@ def main():
 
     link_sources = [(path, re.findall(r"\[[^\]]+\]\(([^)]+)\)", path.read_text(encoding="utf-8")))
                     for path in [root / "README.md", *sorted((root / "docs").rglob("*.md"))]]
-    link_sources.append((contracts / "openapi.yaml", [node["externalDocs"]["url"]
+    link_sources.append((root / "api/openapi.yaml", [node["externalDocs"]["url"]
                         for node in openapi_contract.walk(openapi)
                         if isinstance(node, dict) and "externalDocs" in node]))
     for path, targets in link_sources:

@@ -1,0 +1,48 @@
+# Shared headers; referenced by ../openapi.yaml.
+X-Request-ID:
+  description: 用于定位本次请求的随机标识。
+  required: true
+  schema:
+    type: string
+    pattern: ^[0-9a-f]{32}$
+X-Remota-Epoch:
+  description: 本次服务进程 epoch，不是凭据。
+  required: true
+  schema:
+    type: string
+    pattern: ^[0-9a-f]{32}$
+Cache-Control:
+  description: 动态响应禁止缓存。
+  required: true
+  schema:
+    type: string
+    const: no-store
+X-Content-Type-Options:
+  description: 禁止 MIME 嗅探。
+  required: true
+  schema:
+    type: string
+    const: nosniff
+Referrer-Policy:
+  description: 不发送 Referer。
+  required: true
+  schema:
+    type: string
+    const: no-referrer
+Allow:
+  description: 已知路由支持的方法。
+  required: true
+  schema:
+    type: string
+    pattern: ^(GET|POST|PUT|PATCH)$
+Retry-After:
+  description: 距下一可用窗口的剩余整秒。
+  required: true
+  schema:
+    type: string
+    pattern: ^[1-9][0-9]*$
+AdminCookie:
+  description: 设置或清除 remota_admin；HttpOnly、SameSite=Strict、Path=/，HTTPS 时加 Secure。
+  required: true
+  schema:
+    type: string

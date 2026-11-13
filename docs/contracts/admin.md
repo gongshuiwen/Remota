@@ -2,7 +2,7 @@
 
 管理台与服务端同源，使用独立管理员登录。它管理临时会话、MCP 客户端和凭据，不提供设备 full 授权、命令提交或会话延期。路径前缀为 /api/v1/admin，其他规则见 [通用规则](README.md)，页面行为见 [管理台交互规范](../product/console.md)。
 
-本页 HTTP 绑定由[OpenAPI YAML](openapi.yaml)维护，JSON 请求与响应均在[Schema](schemas/messages.schema.json)覆盖。Cookie 属性、Origin/CSRF 的匹配语义、字节限制及跨资源条件仍按本页与通用规则校验。
+本页 HTTP 绑定由[OpenAPI YAML](../../api/openapi.yaml)维护，JSON 请求与响应均在[Schema](schemas/messages.schema.json)覆盖。Cookie 属性、Origin/CSRF 的匹配语义、字节限制及跨资源条件仍按本页与通用规则校验。
 
 ## 登录与浏览器身份
 
@@ -18,10 +18,10 @@ POST /logout 请求体为 {}，成功 204，撤销当前登录、清 Cookie。�
 
 ## 端点目录
 
-下表从[OpenAPI](openapi.yaml)生成，Schema 名称对应[消息目录](schemas/messages.schema.json)中的同名 $defs；Empty 表示 JSON 空对象，无请求体不等于 Empty。登录成功设置 Cookie；创建、轮换的重复签发关联 ID 为 409。字段细节见相应模型与下文语义。
+下表从[OpenAPI](../../api/openapi.yaml)生成，Schema 名称对应[消息目录](schemas/messages.schema.json)中的同名 $defs；Empty 表示 JSON 空对象，无请求体不等于 Empty。登录成功设置 Cookie；创建、轮换的重复签发关联 ID 为 409。字段细节见相应模型与下文语义。
 
 <!-- BEGIN GENERATED OPENAPI: admin -->
-<!-- Generated from openapi.yaml; use --refresh-openapi. -->
+<!-- Generated from api/openapi.yaml; use --refresh-openapi. -->
 | 方法与路径 | 请求 Schema | 成功响应（状态、Schema） |
 |---|---|---|
 | POST /login | AdminLoginInput | 200 AdminLoginResponse |

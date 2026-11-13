@@ -23,7 +23,7 @@
 | 公共健康消息 | HealthResponse；HTTP 状态仍按通用规则检查 |
 | 公共错误 | Error、ErrorBody |
 
-Schema 覆盖设备、任务、管理 JSON、健康消息及 Remota 使用的 MCP 消息，不替代全部 HTTP/MCP 标准、静态资源或浏览器交互。Agent、Admin 与健康检查的端点、认证声明和 HTTP 状态由[OpenAPI YAML](../openapi.yaml)维护；Cookie 属性、Origin/CSRF 匹配与状态语义继续查各通道目录。
+Schema 覆盖设备、任务、管理 JSON、健康消息及 Remota 使用的 MCP 消息，不替代全部 HTTP/MCP 标准、静态资源或浏览器交互。Agent、Admin 与健康检查的端点、认证声明和 HTTP 状态由[OpenAPI YAML](../../../api/openapi.yaml)维护；Cookie 属性、Origin/CSRF 匹配与状态语义继续查各通道目录。
 
 校验器必须支持 Draft 2020-12、组合 Schema 的 `unevaluatedProperties`，并启用 `date-time` 格式断言。JSON 解析阶段先拒绝非法 UTF-8、重复成员、尾随值和非有限数字；Schema 无法从解析后的对象恢复这些事实。数字必须保留精度再判断数学值，1.0、1e0 可作为整数，1.00000000000000001 与 9007199254740990.9 不能舍入成合法 RPC ID。1e400 是有限 JSON 数字，但不满足 RPC ID 的安全整数范围。
 
@@ -40,7 +40,7 @@ python tools/validate_contracts.py
 
 检查包括：Schema 自身与本地引用、每个正反样例与 raw_json 解析/模型预期、文档 JSON 示例、MCP 文本与结构化正文一致性、原工具输入输出形态、八工具发现结果、自包含 Schema 与权威定义一致性，以及根 README 和 docs 下文档的链接与锚点。OpenAPI 检查还包括规范合法性、重复键与字符串状态码、离线引用、唯一 operationId、路径参数、成功响应、204 空正文、现有样例经 OpenAPI 引用链的验证等价性，以及生成 JSON 与端点表是否过期。输出 PASS/FAIL 和计数；退出码 0 表示全部通过，1 表示文件或校验失败，2 表示缺少依赖或命令用法错误。Go 验证模块复用同一批数据，入口见[实施规划](../../implementation.md#复跑入口与收口条件)。
 
-修改 OpenAPI YAML 后刷新 [HTTP 测试索引](../http.generated.json)与设备、管理端点表；消息 Schema 仍只在其权威源维护。索引由 Python 统一解析引用后生成，供 Go 按模型名称调用既有 Schema 校验器。默认检查只读，刷新操作只写生成内容：
+修改入口或其引用的 OpenAPI YAML 后刷新 [HTTP 测试索引](../../../api/http.generated.json)与设备、管理端点表；消息 Schema 仍只在其权威源维护。索引由 Python 统一解析 `api/` 中的引用后生成，供 Go 按模型名称调用既有 Schema 校验器。默认检查只读，刷新操作只写生成内容：
 
 ```text
 python tools/validate_contracts.py --refresh-openapi
@@ -53,7 +53,7 @@ python -m unittest discover -s tools -p "test_*.py"
 go test -mod=readonly -count=1 -timeout=120s ./internal/contracttest ./internal/protocol ./internal/server
 ```
 
-[HTTP 校验辅助包](../../../internal/contracttest/http.go)在服务端 HTTP 测试和集成测试中，根据实际请求的方法、路径和响应状态统一选择模型，校验响应头、Content-Type、JSON 和空正文；成功请求另核对请求体与资源参数。测试不再手写 HTTP 响应模型名称；预期状态码、错误码、epoch 对应关系及认证、Origin/CSRF 等业务断言保留。MCP 消息继续由既有测试按协议与工具模型校验。[路由覆盖检查](../../../internal/server/routes_test.go)将实际分发使用的路由声明与 OpenAPI 操作双向比较。Go 读取已提交的测试索引，提交前须先通过静态校验；独立运行测试二进制时应保留工作目录或祖先目录中的 docs/contracts。
+[HTTP 校验辅助包](../../../internal/contracttest/http.go)在服务端 HTTP 测试和集成测试中，根据实际请求的方法、路径和响应状态统一选择模型，校验响应头、Content-Type、JSON 和空正文；成功请求另核对请求体与资源参数。测试不再手写 HTTP 响应模型名称；预期状态码、错误码、epoch 对应关系及认证、Origin/CSRF 等业务断言保留。MCP 消息继续由既有测试按协议与工具模型校验。[路由覆盖检查](../../../internal/server/routes_test.go)将实际分发使用的路由声明与 OpenAPI 操作双向比较。Go 读取已提交的测试索引，提交前须先通过静态校验；独立运行测试二进制时应保留工作目录或祖先目录中的 api 和 docs/contracts。
 
 修改 Schema 后，用下列命令刷新 tools/list 中的嵌入定义并执行同一校验；默认命令只读，刷新选项只改该样例的 inputSchema/outputSchema：
 

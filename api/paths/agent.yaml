@@ -1,0 +1,477 @@
+# Path items for the agent channel; referenced by ../openapi.yaml.
+agentCreateSession:
+  post:
+    operationId: agentCreateSession
+    tags:
+    - agent
+    summary: 注册临时设备会话
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E6%B3%A8%E5%86%8C%E5%92%8C%E6%9C%AC%E6%9C%BA%E5%86%B3%E5%AE%9A
+    security:
+    - AccessBearer: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/Empty
+    responses:
+      '201':
+        description: 注册临时设备会话
+        headers: &response-headers
+          X-Request-ID:
+            $ref: ../openapi.yaml#/components/headers/X-Request-ID
+          X-Remota-Epoch:
+            $ref: ../openapi.yaml#/components/headers/X-Remota-Epoch
+          Cache-Control:
+            $ref: ../openapi.yaml#/components/headers/Cache-Control
+          X-Content-Type-Options:
+            $ref: ../openapi.yaml#/components/headers/X-Content-Type-Options
+          Referrer-Policy:
+            $ref: ../openapi.yaml#/components/headers/Referrer-Policy
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/Registration
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '429':
+        $ref: ../openapi.yaml#/components/responses/TooManyRequests
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentGetSession:
+  get:
+    operationId: agentGetSession
+    tags:
+    - agent
+    summary: 读取设备会话，不续租
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E8%AE%BE%E5%A4%87%E4%BC%9A%E8%AF%9D
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    responses:
+      '200':
+        description: 读取设备会话，不续租
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/SessionResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentDecideSession:
+  put:
+    operationId: agentDecideSession
+    tags:
+    - agent
+    summary: 提交本机接入决定
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E6%B3%A8%E5%86%8C%E5%92%8C%E6%9C%AC%E6%9C%BA%E5%86%B3%E5%AE%9A
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/DecisionInput
+    responses:
+      '200':
+        description: 提交本机接入决定
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/DecisionResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentReduceConsent:
+  put:
+    operationId: agentReduceConsent
+    tags:
+    - agent
+    summary: 收紧本机授权
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E9%99%8D%E6%9D%83%E5%92%8C%E7%BB%93%E6%9D%9F
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/ConsentReduction
+    responses:
+      '200':
+        description: 收紧本机授权
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/SessionResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentPollSession:
+  post:
+    operationId: agentPollSession
+    tags:
+    - agent
+    summary: 轮询租约和事件
+    externalDocs:
+      url: ../../docs/contracts/agent.md#poll-%E4%B8%8E%E7%A7%9F%E7%BA%A6
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/PollInput
+    responses:
+      '200':
+        description: 轮询租约和事件
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/PollResult
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '429':
+        $ref: ../openapi.yaml#/components/responses/TooManyRequests
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentCloseSession:
+  post:
+    operationId: agentCloseSession
+    tags:
+    - agent
+    summary: 结束设备会话
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E9%99%8D%E6%9D%83%E5%92%8C%E7%BB%93%E6%9D%9F
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/CloseInput
+    responses:
+      '200':
+        description: 结束设备会话
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/SessionResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentReportCall:
+  post:
+    operationId: agentReportCall
+    tags:
+    - agent
+    summary: 回报固定诊断结果
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E4%BB%BB%E5%8A%A1%E8%AF%B7%E6%B1%82%E4%B8%8E%E5%9B%9E%E6%89%A7
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    - $ref: ../openapi.yaml#/components/parameters/call_id
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/CallResultInput
+    responses:
+      '204':
+        description: 已处理，无响应正文
+        headers: *response-headers
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentStartTask:
+  post:
+    operationId: agentStartTask
+    tags:
+    - agent
+    summary: 申请任务开始许可
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E4%BB%BB%E5%8A%A1%E8%AF%B7%E6%B1%82%E4%B8%8E%E5%9B%9E%E6%89%A7
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    - $ref: ../openapi.yaml#/components/parameters/tid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/StartInput
+    responses:
+      '200':
+        description: 申请任务开始许可
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/StartResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentReportReceipt:
+  post:
+    operationId: agentReportReceipt
+    tags:
+    - agent
+    summary: 回报任务执行证据
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E4%BB%BB%E5%8A%A1%E8%AF%B7%E6%B1%82%E4%B8%8E%E5%9B%9E%E6%89%A7
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    - $ref: ../openapi.yaml#/components/parameters/tid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/ReceiptInput
+    responses:
+      '200':
+        description: 回报任务执行证据
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/TaskResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+agentReportResult:
+  post:
+    operationId: agentReportResult
+    tags:
+    - agent
+    summary: 回报任务完整结果
+    externalDocs:
+      url: ../../docs/contracts/agent.md#%E4%BB%BB%E5%8A%A1%E8%AF%B7%E6%B1%82%E4%B8%8E%E5%9B%9E%E6%89%A7
+    security:
+    - AgentBearer: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    - $ref: ../openapi.yaml#/components/parameters/tid
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/ResultInput
+    responses:
+      '200':
+        description: 回报任务完整结果
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/TaskResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable

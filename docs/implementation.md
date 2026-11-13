@@ -48,6 +48,7 @@ Go 1.27 已发布新的严格 JSON API；React 官方也提供基于 Vite 的独
 
 ```text
 Remota/
+├─ api/                     # OpenAPI 权威入口、分通道路径、共享组件与生成测试索引
 ├─ cmd/
 │  ├─ remota-server/          # 服务端入口，组装配置、存储、核心及通道
 │  └─ remota-agent/           # Agent 入口与退出协调

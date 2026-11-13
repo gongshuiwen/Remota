@@ -1,0 +1,194 @@
+# Authoritative HTTP entry point. Refresh views: python tools/validate_contracts.py --refresh-openapi
+openapi: 3.1.2
+info:
+  title: Remota HTTP API
+  version: draft-2
+  description: |
+    Agent、Admin 与健康检查的 HTTP 绑定契约。消息结构复用 JSON Schema 2020-12。
+    授权、期限、状态转换、UTF-8 字节、幂等及重试规则见各领域契约。
+    MCP 的 JSON-RPC、工具及传输表面由 mcp.md 与现有消息 Schema 维护。
+    业务接口拒绝未声明查询参数；无请求体不等于必须发送 JSON 空对象。
+servers:
+- url: /
+tags:
+- name: public
+  description: 公共健康检查
+- name: agent
+  description: 主动出站设备通道
+- name: admin
+  description: 同源管理员通道
+paths:
+  /healthz:
+    $ref: ./paths/health.yaml#/getHealth
+  /api/v1/agent/sessions:
+    $ref: ./paths/agent.yaml#/agentCreateSession
+  /api/v1/agent/sessions/{sid}:
+    $ref: ./paths/agent.yaml#/agentGetSession
+  /api/v1/agent/sessions/{sid}/decision:
+    $ref: ./paths/agent.yaml#/agentDecideSession
+  /api/v1/agent/sessions/{sid}/consent:
+    $ref: ./paths/agent.yaml#/agentReduceConsent
+  /api/v1/agent/sessions/{sid}/poll:
+    $ref: ./paths/agent.yaml#/agentPollSession
+  /api/v1/agent/sessions/{sid}/close:
+    $ref: ./paths/agent.yaml#/agentCloseSession
+  /api/v1/agent/sessions/{sid}/calls/{call_id}/result:
+    $ref: ./paths/agent.yaml#/agentReportCall
+  /api/v1/agent/sessions/{sid}/tasks/{tid}/start:
+    $ref: ./paths/agent.yaml#/agentStartTask
+  /api/v1/agent/sessions/{sid}/tasks/{tid}/receipts:
+    $ref: ./paths/agent.yaml#/agentReportReceipt
+  /api/v1/agent/sessions/{sid}/tasks/{tid}/result:
+    $ref: ./paths/agent.yaml#/agentReportResult
+  /api/v1/admin/login:
+    $ref: ./paths/admin.yaml#/adminLogin
+  /api/v1/admin/logout:
+    $ref: ./paths/admin.yaml#/adminLogout
+  /api/v1/admin/state:
+    $ref: ./paths/admin.yaml#/adminGetState
+  /api/v1/admin/credentials:
+    $ref: ./paths/admin.yaml#/adminCreateCredential
+  /api/v1/admin/credentials/{cid}/rotate:
+    $ref: ./paths/admin.yaml#/adminRotateCredential
+  /api/v1/admin/credentials/{cid}/revoke:
+    $ref: ./paths/admin.yaml#/adminRevokeCredential
+  /api/v1/admin/sessions/{sid}:
+    $ref: ./paths/admin.yaml#/adminUpdateNote
+  /api/v1/admin/sessions/{sid}/end:
+    $ref: ./paths/admin.yaml#/adminEndSession
+  /api/v1/admin/clients/{mcl_id}/end:
+    $ref: ./paths/admin.yaml#/adminEndClient
+components:
+  securitySchemes:
+    AccessBearer:
+      $ref: ./components/security-schemes.yaml#/AccessBearer
+    AgentBearer:
+      $ref: ./components/security-schemes.yaml#/AgentBearer
+    AdminCookie:
+      $ref: ./components/security-schemes.yaml#/AdminCookie
+    CSRFToken:
+      $ref: ./components/security-schemes.yaml#/CSRFToken
+  parameters:
+    sid:
+      $ref: ./components/parameters.yaml#/sid
+    tid:
+      $ref: ./components/parameters.yaml#/tid
+    call_id:
+      $ref: ./components/parameters.yaml#/call_id
+    cid:
+      $ref: ./components/parameters.yaml#/cid
+    mcl_id:
+      $ref: ./components/parameters.yaml#/mcl_id
+    Origin:
+      $ref: ./components/parameters.yaml#/Origin
+  headers:
+    X-Request-ID:
+      $ref: ./components/headers.yaml#/X-Request-ID
+    X-Remota-Epoch:
+      $ref: ./components/headers.yaml#/X-Remota-Epoch
+    Cache-Control:
+      $ref: ./components/headers.yaml#/Cache-Control
+    X-Content-Type-Options:
+      $ref: ./components/headers.yaml#/X-Content-Type-Options
+    Referrer-Policy:
+      $ref: ./components/headers.yaml#/Referrer-Policy
+    Allow:
+      $ref: ./components/headers.yaml#/Allow
+    Retry-After:
+      $ref: ./components/headers.yaml#/Retry-After
+    AdminCookie:
+      $ref: ./components/headers.yaml#/AdminCookie
+  responses:
+    HealthReady:
+      $ref: ./components/responses.yaml#/HealthReady
+    HealthUnavailable:
+      $ref: ./components/responses.yaml#/HealthUnavailable
+    BadRequest:
+      $ref: ./components/responses.yaml#/BadRequest
+    Unauthenticated:
+      $ref: ./components/responses.yaml#/Unauthenticated
+    Forbidden:
+      $ref: ./components/responses.yaml#/Forbidden
+    NotFound:
+      $ref: ./components/responses.yaml#/NotFound
+    MethodNotAllowed:
+      $ref: ./components/responses.yaml#/MethodNotAllowed
+    Conflict:
+      $ref: ./components/responses.yaml#/Conflict
+    Gone:
+      $ref: ./components/responses.yaml#/Gone
+    PayloadTooLarge:
+      $ref: ./components/responses.yaml#/PayloadTooLarge
+    UnsupportedMediaType:
+      $ref: ./components/responses.yaml#/UnsupportedMediaType
+    TooManyRequests:
+      $ref: ./components/responses.yaml#/TooManyRequests
+    InternalError:
+      $ref: ./components/responses.yaml#/InternalError
+    Unavailable:
+      $ref: ./components/responses.yaml#/Unavailable
+  schemas:
+    AdminLoginInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/AdminLoginInput
+    AdminLoginResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/AdminLoginResponse
+    AdminSessionResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/AdminSessionResponse
+    AdminSnapshot:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/AdminSnapshot
+    CallId:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/CallId
+    CallResultInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/CallResultInput
+    CloseInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/CloseInput
+    ConsentReduction:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/ConsentReduction
+    CredentialCreate:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/CredentialCreate
+    CredentialId:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/CredentialId
+    CredentialIssue:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/CredentialIssue
+    CredentialRevokeResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/CredentialRevokeResponse
+    CredentialRotate:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/CredentialRotate
+    DecisionInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/DecisionInput
+    DecisionResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/DecisionResponse
+    Empty:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/Empty
+    Error:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/Error
+    HealthResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/HealthResponse
+    MCPClientEndResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/MCPClientEndResponse
+    MCPClientId:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/MCPClientId
+    NoteInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/NoteInput
+    PollInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/PollInput
+    PollResult:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/PollResult
+    ReceiptInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/ReceiptInput
+    Registration:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/Registration
+    ResultInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/ResultInput
+    SessionId:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/SessionId
+    SessionResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/SessionResponse
+    StartInput:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/StartInput
+    StartResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/StartResponse
+    TaskId:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/TaskId
+    TaskResponse:
+      $ref: ../docs/contracts/schemas/messages.schema.json#/$defs/TaskResponse
