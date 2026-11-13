@@ -228,7 +228,7 @@ func TestWindowsMCPAgent(t *testing.T) {
 			case "operator_cancel":
 				actor.ok(t, "cancel_task", object{"session_id": sid, "task_id": tid})
 			case "mcp_client_ended":
-				s.peer.exchange(t, "DELETE", "/mcp", nil, actor.headers(), 204, "")
+				s.peer.exchange(t, "DELETE", "/mcp", nil, actor.headers(), 204)
 			case "credential_revoked":
 				revoke()
 			case "readonly":
@@ -287,17 +287,17 @@ func TestWindowsMCPAgent(t *testing.T) {
 func revocableClient(t *testing.T, s *linuxServer) (*mcpClient, func()) {
 	t.Helper()
 	headers := http.Header{"Origin": {s.info.URL}}
-	v, h := s.peer.exchange(t, "POST", "/api/v1/admin/login", object{"password": s.info.Password}, headers, 200, "AdminLoginResponse")
+	v, h := s.peer.exchange(t, "POST", "/api/v1/admin/login", object{"password": s.info.Password}, headers, 200)
 	for _, cookie := range (&http.Response{Header: h}).Cookies() {
 		if cookie.Name == "remota_admin" {
 			headers.Set("Cookie", cookie.Name+"="+cookie.Value)
 		}
 	}
 	headers.Set("X-CSRF-Token", v["csrf_token"].(string))
-	issue, _ := s.peer.exchange(t, "POST", "/api/v1/admin/credentials", object{"operation_id": strings.Repeat("2", 32), "kind": "mcp", "name": "Windows revocation acceptance", "allow_exec": true}, headers, 201, "CredentialIssue")
+	issue, _ := s.peer.exchange(t, "POST", "/api/v1/admin/credentials", object{"operation_id": strings.Repeat("2", 32), "kind": "mcp", "name": "Windows revocation acceptance", "allow_exec": true}, headers, 201)
 	id := issue["credential"].(object)["id"].(string)
 	return newMCPClient(t, s.peer, issue["secret"].(string)), func() {
-		s.peer.exchange(t, "POST", "/api/v1/admin/credentials/"+id+"/revoke", object{}, headers, 200, "CredentialRevokeResponse")
+		s.peer.exchange(t, "POST", "/api/v1/admin/credentials/"+id+"/revoke", object{}, headers, 200)
 	}
 }
 

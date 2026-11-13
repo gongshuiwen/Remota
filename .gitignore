@@ -2,3 +2,4 @@
 /web/dist/
 /web/test-results/
 /web/playwright-report/
+/tools/__pycache__/

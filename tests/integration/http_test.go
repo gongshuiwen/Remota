@@ -12,6 +12,7 @@ import (
 	"time"
 
 	json "encoding/json/v2"
+	"remota.local/remota/internal/contracttest"
 	"remota.local/remota/internal/protocol"
 )
 
@@ -59,7 +60,7 @@ type httpPeer struct {
 	url       string
 }
 
-func (p *httpPeer) exchange(t *testing.T, method, path string, body any, headers http.Header, status int, model string) (object, http.Header) {
+func (p *httpPeer) exchange(t *testing.T, method, path string, body any, headers http.Header, status int) (object, http.Header) {
 	t.Helper()
 	var reader io.Reader
 	if body != nil {
@@ -82,24 +83,32 @@ func (p *httpPeer) exchange(t *testing.T, method, path string, body any, headers
 	if response.StatusCode != status {
 		t.Fatalf("%s %s: HTTP %d, want %d", method, path, response.StatusCode, status)
 	}
-	if response.Header.Get("Cache-Control") != "no-store" {
-		t.Fatal("response is not marked no-store")
-	}
 	b, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	require(t, err)
-	if status == 202 || status == 204 {
-		if len(b) != 0 {
-			t.Fatal("unexpected response body")
+	if path != "/mcp" {
+		contract, err := contracttest.Load()
+		require(t, err)
+		require(t, contract.Check(r, response.StatusCode, response.Header, b))
+		if len(b) == 0 {
+			return nil, response.Header
 		}
-		return nil, response.Header
-	}
-	media, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if err != nil || media != "application/json" {
-		t.Fatal("response is not JSON")
+	} else {
+		if response.Header.Get("Cache-Control") != "no-store" {
+			t.Fatal("MCP response is not marked no-store")
+		}
+		if status == 202 || status == 204 {
+			if len(b) != 0 {
+				t.Fatal("unexpected MCP response body")
+			}
+			return nil, response.Header
+		}
+		media, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
+		if err != nil || media != "application/json" {
+			t.Fatal("MCP response is not JSON")
+		}
 	}
 	v, err := protocol.Parse(b)
 	require(t, err)
-	require(t, p.validator.Validate(model, v))
 	return v.(object), response.Header
 }
 
@@ -118,7 +127,7 @@ func newMCPClient(t *testing.T, peer *httpPeer, token string) *mcpClient {
 	if m.session == "" || v["result"].(object)["protocolVersion"] != "2025-11-25" {
 		t.Fatal("MCP initialization did not negotiate the contract")
 	}
-	peer.exchange(t, "POST", "/mcp", object{"jsonrpc": "2.0", "method": "notifications/initialized"}, m.headers(), 202, "")
+	peer.exchange(t, "POST", "/mcp", object{"jsonrpc": "2.0", "method": "notifications/initialized"}, m.headers(), 202)
 	t.Cleanup(func() {
 		// A revoked or explicitly ended client is already closed.
 		r, err := http.NewRequest("DELETE", peer.url+"/mcp", nil)
@@ -145,7 +154,8 @@ func (m *mcpClient) rpc(t *testing.T, method string, params object, model string
 	t.Helper()
 	m.next++
 	id := fmt.Sprint(m.next)
-	v, h := m.peer.exchange(t, "POST", "/mcp", object{"jsonrpc": "2.0", "id": id, "method": method, "params": params}, m.headers(), 200, model)
+	v, h := m.peer.exchange(t, "POST", "/mcp", object{"jsonrpc": "2.0", "id": id, "method": method, "params": params}, m.headers(), 200)
+	require(t, m.peer.validator.Validate(model, v))
 	if v["id"] != id {
 		t.Fatal("MCP response ID changed")
 	}

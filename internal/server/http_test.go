@@ -16,7 +16,7 @@ import (
 
 	"remota.local/remota/internal/auth"
 	"remota.local/remota/internal/clock"
-	"remota.local/remota/internal/protocol"
+	"remota.local/remota/internal/contracttest"
 	"remota.local/remota/internal/server/core"
 	"remota.local/remota/internal/server/store"
 )
@@ -110,17 +110,15 @@ func (h *webHarness) do(t *testing.T, method, path, body string, edit func(*http
 	defer r.Body.Close()
 	b, err := io.ReadAll(r.Body)
 	must(t, err)
+	contract, err := contracttest.Load()
+	must(t, err)
+	must(t, contract.Check(req, r.StatusCode, r.Header, b))
 	v := object{}
 	if len(b) > 0 {
 		must(t, json.Unmarshal(b, &v))
 	}
-	if r.Header.Get("X-Remota-Epoch") != h.s.Core.Epoch() || len(r.Header.Get("X-Request-ID")) != 32 || r.Header.Get("Cache-Control") != "no-store" {
-		t.Fatal("missing response identity/cache headers")
-	}
-	if r.StatusCode >= 400 && path != "/healthz" {
-		parsed, err := protocol.Parse(b)
-		must(t, err)
-		must(t, h.s.validator.Validate("Error", parsed))
+	if r.Header.Get("X-Remota-Epoch") != h.s.Core.Epoch() {
+		t.Fatal("response epoch differs from the running server")
 	}
 	return response{r.StatusCode, r.Header, b, v}
 }
@@ -129,7 +127,7 @@ func (h *webHarness) login(t *testing.T) {
 	b, err := json.Marshal(object{"password": h.handoff.AdminPassword})
 	must(t, err)
 	r := h.do(t, "POST", "/api/v1/admin/login", string(b), nil)
-	check(t, h, r, 200, "AdminLoginResponse")
+	checkStatus(t, r, 200)
 	cookies := (&http.Response{Header: r.header}).Cookies()
 	if len(cookies) != 1 {
 		t.Fatal("login cookie missing")
@@ -137,15 +135,10 @@ func (h *webHarness) login(t *testing.T) {
 	h.cookie = cookies[0]
 	h.csrf = r.value["csrf_token"].(string)
 }
-func check(t *testing.T, h *webHarness, r response, status int, model string) {
+func checkStatus(t *testing.T, r response, status int) {
 	t.Helper()
 	if r.status != status {
 		t.Fatalf("status=%d want=%d body=%s", r.status, status, r.body)
-	}
-	if model != "" {
-		v, err := protocol.Parse(r.body)
-		must(t, err)
-		must(t, h.s.validator.Validate(model, v))
 	}
 }
 func wantError(t *testing.T, r response, status int, code string) {
@@ -160,7 +153,7 @@ func createBody(op, kind string) string {
 func (h *webHarness) state(t *testing.T) response {
 	t.Helper()
 	r := h.do(t, "GET", "/api/v1/admin/state", "", nil)
-	check(t, h, r, 200, "AdminSnapshot")
+	checkStatus(t, r, 200)
 	return r
 }
 
@@ -186,7 +179,7 @@ func TestAdminCredentialLifecycle(t *testing.T) {
 	}
 	op := strings.Repeat("a", 32)
 	r := h.do(t, "POST", "/api/v1/admin/credentials", createBody(op, "mcp"), nil)
-	check(t, h, r, 201, "CredentialIssue")
+	checkStatus(t, r, 201)
 	v := r.value["credential"].(map[string]any)
 	id := v["id"].(string)
 	secret := r.value["secret"].(string)
@@ -205,7 +198,7 @@ func TestAdminCredentialLifecycle(t *testing.T) {
 	wantError(t, r, 400, "INVALID_ARGUMENT")
 	rotate := fmt.Sprintf(`{"operation_id":%q}`, strings.Repeat("b", 32))
 	r = h.do(t, "POST", "/api/v1/admin/credentials/"+id+"/rotate", rotate, nil)
-	check(t, h, r, 201, "CredentialIssue")
+	checkStatus(t, r, 201)
 	newID := r.value["credential"].(map[string]any)["id"].(string)
 	newSecret := r.value["secret"].(string)
 	if _, err = h.s.Core.AuthenticateCredential(secret, "mcp"); err != core.Unauthenticated {
@@ -214,12 +207,12 @@ func TestAdminCredentialLifecycle(t *testing.T) {
 	_, err = h.s.Core.AuthenticateCredential(newSecret, "mcp")
 	must(t, err)
 	r = h.do(t, "POST", "/api/v1/admin/credentials/"+id+"/revoke", "{}", nil)
-	check(t, h, r, 200, "CredentialRevokeResponse")
+	checkStatus(t, r, 200)
 	if r.value["management_revision"] != float64(3) {
 		t.Fatal("repeated revocation changed durable revision")
 	}
 	r = h.do(t, "POST", "/api/v1/admin/credentials/"+newID+"/revoke", "{}", nil)
-	check(t, h, r, 200, "CredentialRevokeResponse")
+	checkStatus(t, r, 200)
 	r = h.do(t, "POST", "/api/v1/admin/credentials/"+id+"/rotate", rotate, nil)
 	wantError(t, r, 409, "CREDENTIAL_OPERATION_EXISTS")
 	r = h.do(t, "POST", "/api/v1/admin/credentials/"+id+"/rotate", fmt.Sprintf(`{"operation_id":%q}`, strings.Repeat("c", 32)), nil)
@@ -235,7 +228,7 @@ func TestAdminCredentialLifecycle(t *testing.T) {
 		}
 	}
 	r = h.do(t, "POST", "/api/v1/admin/logout", "{}", nil)
-	check(t, h, r, 204, "")
+	checkStatus(t, r, 204)
 	r = h.do(t, "GET", "/api/v1/admin/state", "", nil)
 	wantError(t, r, 401, "UNAUTHENTICATED")
 }
@@ -263,7 +256,7 @@ func TestCredentialLifetimeBoundariesSurviveRestart(t *testing.T) {
 			wantError(t, r, 400, "INVALID_ARGUMENT")
 			continue
 		}
-		check(t, h, r, 201, "CredentialIssue")
+		checkStatus(t, r, 201)
 		credential := r.value["credential"].(map[string]any)
 		created, err := time.Parse(time.RFC3339Nano, credential["created_at"].(string))
 		must(t, err)
@@ -294,6 +287,7 @@ func TestHTTPIdentityAndStrictMessages(t *testing.T) {
 		edit                           func(*http.Request)
 	}{
 		{"cookie_required", "GET", "/api/v1/admin/state", "", "UNAUTHENTICATED", 401, func(r *http.Request) { r.Header.Del("Cookie") }},
+		{"mutation_cookie_required", "POST", "/api/v1/admin/logout", `{}`, "UNAUTHENTICATED", 401, func(r *http.Request) { r.Header.Del("Cookie") }},
 		{"bearer_denied", "GET", "/api/v1/admin/state", "", "UNAUTHENTICATED", 401, func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+h.handoff.MCP) }},
 		{"duplicate_cookie", "GET", "/api/v1/admin/state", "", "UNAUTHENTICATED", 401, func(r *http.Request) { r.AddCookie(h.cookie) }},
 		{"empty_duplicate_cookie", "GET", "/api/v1/admin/state", "", "UNAUTHENTICATED", 401, func(r *http.Request) { r.Header.Set("Cookie", "remota_admin=; remota_admin="+h.cookie.Value) }},
@@ -305,6 +299,7 @@ func TestHTTPIdentityAndStrictMessages(t *testing.T) {
 		{"origin_empty_fragment", "POST", "/api/v1/admin/credentials", body, "ORIGIN_DENIED", 403, func(r *http.Request) { r.Header.Set("Origin", h.web.URL+"#") }},
 		{"missing_origin", "POST", "/api/v1/admin/credentials", body, "ORIGIN_DENIED", 403, func(r *http.Request) { r.Header.Del("Origin") }},
 		{"csrf", "POST", "/api/v1/admin/credentials", body, "CSRF_INVALID", 403, func(r *http.Request) { r.Header.Set("X-CSRF-Token", "wrong") }},
+		{"missing_csrf", "POST", "/api/v1/admin/logout", `{}`, "CSRF_INVALID", 403, func(r *http.Request) { r.Header.Del("X-CSRF-Token") }},
 		{"query", "GET", "/api/v1/admin/state?unexpected=1", "", "INVALID_ARGUMENT", 400, nil},
 		{"duplicate_json", "POST", "/api/v1/admin/logout", `{"a":1,"a":2}`, "INVALID_JSON", 400, nil},
 		{"trailing_json", "POST", "/api/v1/admin/logout", `{} {}`, "INVALID_JSON", 400, nil},
@@ -326,7 +321,7 @@ func TestHTTPIdentityAndStrictMessages(t *testing.T) {
 		})
 	}
 	r := h.do(t, "PUT", "/api/v1/admin/logout", "{}", nil)
-	check(t, h, r, 405, "Error")
+	checkStatus(t, r, 405)
 	if r.header.Get("Allow") != "POST" {
 		t.Fatal("missing Allow")
 	}
@@ -391,16 +386,16 @@ func TestNotesEndsAndConsistentSnapshot(t *testing.T) {
 	}
 	path := "/api/v1/admin/sessions/" + task.SessionID
 	r := h.do(t, "PATCH", path, `{"note":"备注","expected_note_revision":0}`, nil)
-	check(t, h, r, 200, "AdminSessionResponse")
+	checkStatus(t, r, 200)
 	r = h.do(t, "PATCH", path, `{"note":"旧请求","expected_note_revision":0}`, nil)
 	wantError(t, r, 409, "REVISION_CONFLICT")
 	r = h.do(t, "POST", "/api/v1/admin/clients/"+cl+"/end", "{}", nil)
-	check(t, h, r, 200, "MCPClientEndResponse")
+	checkMCP(t, h, r, 200, "MCPClientEndResponse")
 	if r.value["effects"].(map[string]any)["tasks_stop_requested"] != float64(1) {
 		t.Fatal("stop effect count differs")
 	}
 	r = h.do(t, "POST", path+"/end", "{}", nil)
-	check(t, h, r, 200, "SessionResponse")
+	checkStatus(t, r, 200)
 	r = h.do(t, "PATCH", path, `{"note":"no","expected_note_revision":1}`, nil)
 	wantError(t, r, 410, "SESSION_ENDED")
 	h.f.step(5 * time.Second)
@@ -412,7 +407,7 @@ func TestNotesEndsAndConsistentSnapshot(t *testing.T) {
 	_, err := h.s.Core.RecordReceipt(task.SessionID, task.ID, core.Receipt{Kind: "exited", GrantID: g.ID})
 	must(t, err)
 	r = h.do(t, "POST", path+"/end", "{}", nil)
-	check(t, h, r, 200, "SessionResponse")
+	checkStatus(t, r, 200)
 	if r.value["session"].(map[string]any)["cleanup"] != "confirmed" {
 		t.Fatal("late exit did not update cleanup")
 	}
@@ -444,13 +439,13 @@ func TestCredentialRevocationEffects(t *testing.T) {
 			}
 			path := "/api/v1/admin/credentials/" + id + "/revoke"
 			r := h.do(t, "POST", path, "{}", nil)
-			check(t, h, r, 200, "CredentialRevokeResponse")
+			checkStatus(t, r, 200)
 			effects := r.value["effects"].(map[string]any)
 			if effects["sessions_ended"] != tc.sessions || effects["clients_ended"] != tc.clients || effects["tasks_stop_requested"] != tc.tasks {
 				t.Fatalf("unexpected effects: %v", effects)
 			}
 			r = h.do(t, "POST", path, "{}", nil)
-			check(t, h, r, 200, "CredentialRevokeResponse")
+			checkStatus(t, r, 200)
 			effects = r.value["effects"].(map[string]any)
 			if effects["sessions_ended"] != float64(0) || effects["clients_ended"] != float64(0) || effects["tasks_stop_requested"] != float64(0) {
 				t.Fatalf("repeated revocation reported new effects: %v", effects)
@@ -472,7 +467,7 @@ func TestHTTPSAuthorityAndCookie(t *testing.T) {
 	})
 	// A real backend HTTP request models an external TLS-terminating proxy.
 	r := h.do(t, "POST", "/api/v1/admin/login", fmt.Sprintf(`{"password":%q}`, h.handoff.AdminPassword), func(r *http.Request) { r.Host = "EXAMPLE.com:0443"; r.Header.Set("Origin", "https://example.com") })
-	check(t, h, r, 200, "AdminLoginResponse")
+	checkStatus(t, r, 200)
 	c := (&http.Response{Header: r.header}).Cookies()[0]
 	if !c.Secure || !c.HttpOnly {
 		t.Fatal("HTTPS cookie not protected")
@@ -502,7 +497,7 @@ func TestInternationalizedPublicURL(t *testing.T) {
 		r.Host = "xn--bcher-kva.example"
 		r.Header.Set("Origin", "https://xn--bcher-kva.example")
 	})
-	check(t, h, r, 200, "AdminLoginResponse")
+	checkStatus(t, r, 200)
 	config := h.s.config
 	config.PublicURL = "https://x\u200dy.example"
 	if _, _, _, err := config.validate(); err == nil {
@@ -547,7 +542,7 @@ func TestAdminSessionLimitAndReplacement(t *testing.T) {
 		r := h.do(t, "POST", "/api/v1/admin/login", fmt.Sprintf(`{"password":%q}`, h.handoff.AdminPassword), func(r *http.Request) {
 			r.Header.Del("Cookie")
 		})
-		check(t, h, r, 200, "AdminLoginResponse")
+		checkStatus(t, r, 200)
 		if i == 0 {
 			other = (&http.Response{Header: r.header}).Cookies()[0]
 		}
@@ -561,7 +556,7 @@ func TestAdminSessionLimitAndReplacement(t *testing.T) {
 	r = h.do(t, "GET", "/api/v1/admin/state", "", func(r *http.Request) {
 		r.Header.Set("Cookie", other.String())
 	})
-	check(t, h, r, 200, "AdminSnapshot")
+	checkStatus(t, r, 200)
 }
 
 func TestSlowCommitDoesNotBlockStopOrSnapshot(t *testing.T) {
@@ -605,7 +600,7 @@ func TestSlowCommitDoesNotBlockStopOrSnapshot(t *testing.T) {
 	}
 	once.Do(func() { close(release) })
 	r := <-done
-	check(t, h, r, 200, "CredentialRevokeResponse")
+	checkStatus(t, r, 200)
 }
 
 func TestWriteFailureAndUnknownCommitRequireRecovery(t *testing.T) {
@@ -632,7 +627,7 @@ func TestWriteFailureAndUnknownCommitRequireRecovery(t *testing.T) {
 				t.Fatal("failed write reported success")
 			}
 			r = h.do(t, "GET", "/healthz", "", nil)
-			check(t, h, r, 503, "HealthResponse")
+			checkStatus(t, r, 503)
 			epoch := h.s.Core.Epoch()
 			h.web.Close()
 			must(t, h.s.Close())
@@ -781,7 +776,7 @@ func TestSnapshotUsesElapsedCredentialExpiry(t *testing.T) {
 	h := newWeb(t, nil)
 	body := fmt.Sprintf(`{"operation_id":%q,"kind":"mcp","name":"short","expires_in_seconds":604830}`, strings.Repeat("a", 32))
 	r := h.do(t, "POST", "/api/v1/admin/credentials", body, nil)
-	check(t, h, r, 201, "CredentialIssue")
+	checkStatus(t, r, 201)
 	secret := r.value["secret"].(string)
 	h.f.advance(-48*time.Hour, time.Minute)
 	v := h.state(t)

@@ -13,6 +13,7 @@
 | 文档                                          | 权威定义                                |
 | ------------------------------------------- | ----------------------------------- |
 | 本文                                          | HTTP、身份格式、时间算法、公共边界、运行默认值和错误        |
+| [HTTP OpenAPI](openapi.yaml) | Agent、Admin 与健康检查的方法、路径、参数、认证声明、状态码和消息绑定 |
 | [设备通道](agent.md)                            | Session、本机授权、Lease、Event、设备请求与回执    |
 | [任务语义](tasks.md)                            | Task、StartGrant、命令幂等、执行证据和结算        |
 | [管理员通道](admin.md)                           | 管理登录、AdminSnapshot、Credential、签发与撤销 |
@@ -21,7 +22,15 @@
 | [验收规格与样例](acceptance/README.md) | 总体验收清单、正常与异常场景、共用样例和校验入口 |
 | [管理台交互](../product/console.md)              | 刷新、草稿、身份隔离、搜索、提醒、复制和语言              |
 
-“必须”和“不得”是约束，“可”表示允许。字段表是阅读摘要，已覆盖消息的结构统一由 Schema 定义；授权、状态转换、UTF-8 字节、跨消息关联、时间算法及未覆盖接口仍在所属领域文档定义。Schema 仅形式化 Draft 2 已有结构，不改变协议行为；调用处通过链接引用完整规则。
+“必须”和“不得”是约束，“可”表示允许。HTTP 绑定的权威源为 OpenAPI YAML；字段表是阅读摘要，已覆盖消息的结构统一由 JSON Schema 定义。授权、状态转换、UTF-8 字节、跨消息关联、时间算法、严格解析和未覆盖接口仍在所属领域文档定义。机器契约形式化 Draft 2 已有规则，不改变协议行为；调用处通过链接引用完整规则。
+
+## HTTP 契约维护
+
+[openapi.yaml](openapi.yaml)采用 [OpenAPI 3.1.2](https://spec.openapis.org/oas/v3.1.2.html)，覆盖 10 个设备操作、9 个管理操作和 GET /healthz。请求、响应与资源参数通过 `$ref` 复用[消息 Schema](schemas/messages.schema.json)，不复制字段定义。MCP 继续以[通道契约](mcp.md)、工具 inputSchema/outputSchema 和 MCP 验收为准，不纳入这 20 个操作。
+
+[http.generated.json](http.generated.json)是供 Go HTTP 测试读取的确定性索引，包含方法、路径模式、模型名称、状态码及响应头约束。Python 生成时统一解析引用；Go 只查绑定并调用既有 Schema 校验器，不再解释 OpenAPI。索引不是 OpenAPI 文档，也不复制消息字段定义。设备和管理文档中标记的端点表同样自动生成。修改 YAML 后通过[校验入口](acceptance/README.md#最小校验入口)的 `--refresh-openapi` 刷新并一并提交；不得手工修改生成内容。默认校验只读，会拒绝过期产物、重复 YAML 键、非字符串状态码、外部网络引用及消息目录之外的引用。
+
+契约修改先明确预期接口及业务规则，再更新 YAML、必要的 JSON Schema 与实现。HTTP 测试按实际方法、路径和状态码自动选择响应模型，统一验证响应头、媒体类型和正文；成功请求还核对请求体与资源参数。领域测试继续验证认证、授权、Origin/CSRF、期限、幂等和竞态，结构验证不证明这些行为正确。
 
 消息示例均为独立合成数据，重复 ID 仅用于说明关联，不代表同一条真实时间线；秘密示例不能作为实际凭据使用。
 

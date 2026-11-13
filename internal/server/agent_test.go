@@ -26,7 +26,7 @@ func agentRequest(t *testing.T, h *webHarness, token, method, path, body string,
 func TestAgentReadonlyDiagnosticAndIdentity(t *testing.T) {
 	h := newWeb(t, nil)
 	r := agentRequest(t, h, h.handoff.Access, "POST", "/sessions", "{}", nil)
-	check(t, h, r, 201, "Registration")
+	checkStatus(t, r, 201)
 	session := r.value["session"].(map[string]any)
 	sid, token := session["id"].(string), r.value["agent_token"].(string)
 	if session["state"] != "pending" || strings.Contains(string(r.body), "hostname") {
@@ -53,12 +53,12 @@ func TestAgentReadonlyDiagnosticAndIdentity(t *testing.T) {
 		t.Fatal("diagnostic accepted before local consent")
 	}
 	r = agentRequest(t, h, token, "PUT", path+"/decision", `{"decision":"accept","mode":"readonly"}`, nil)
-	check(t, h, r, 200, "DecisionResponse")
+	checkStatus(t, r, 200)
 	if _, err = h.s.Core.BeginDiagnostic(mcp, client.ID, sid, "ping"); err != core.AgentUnavailable {
 		t.Fatal("diagnostic accepted before the first lease")
 	}
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	if r.value["lease"].(map[string]any)["seq"] != float64(1) {
 		t.Fatal("initial lease missing")
 	}
@@ -78,7 +78,7 @@ func TestAgentReadonlyDiagnosticAndIdentity(t *testing.T) {
 	}
 	h.s.Core.AbortPoll(p)
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	events := r.value["events"].([]any)
 	if len(events) != 1 || events[0].(map[string]any)["type"] != "call.request" {
 		t.Fatal("diagnostic event missing")
@@ -98,14 +98,14 @@ func TestAgentReadonlyDiagnosticAndIdentity(t *testing.T) {
 	result := `{"consent_revision":1,"result":{"pong":true,"agent_time":"2026-11-09T04:00:00.000Z"}}`
 	resultPath := path + "/calls/" + call.ID + "/result"
 	r = agentRequest(t, h, token, "POST", resultPath, result, nil)
-	check(t, h, r, 204, "")
+	checkStatus(t, r, 204)
 	select {
 	case <-call.Done:
 	default:
 		t.Fatal("diagnostic waiter not notified")
 	}
 	r = agentRequest(t, h, token, "POST", resultPath, result, nil)
-	check(t, h, r, 204, "")
+	checkStatus(t, r, 204)
 	r = agentRequest(t, h, token, "POST", resultPath, strings.Replace(result, "04:00:00", "04:00:01", 1), nil)
 	wantError(t, r, 409, "RESULT_CONFLICT")
 	got, err := h.s.Core.Diagnostic(mcp, client.ID, sid, call.ID)
@@ -119,24 +119,24 @@ func TestAgentReadonlyDiagnosticAndIdentity(t *testing.T) {
 	infoCall, err := h.s.Core.BeginDiagnostic(mcp, client.ID, sid, "info")
 	must(t, err)
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	infoResult := `{"consent_revision":1,"result":{"agent_version":"test","os":"linux","arch":"amd64","hostname":"fixture","supported_shells":[]}}`
 	infoPath := path + "/calls/" + infoCall.ID + "/result"
 	r = agentRequest(t, h, token, "POST", infoPath, infoResult, nil)
-	check(t, h, r, 204, "")
+	checkStatus(t, r, 204)
 	r = agentRequest(t, h, token, "POST", infoPath, infoResult, nil)
-	check(t, h, r, 204, "")
+	checkStatus(t, r, 204)
 	info, err := h.s.Core.Diagnostic(mcp, client.ID, sid, infoCall.ID)
 	must(t, err)
 	if info.Result == nil || info.Result.Info == nil || info.Result.Info.Hostname != "fixture" {
 		t.Fatal("info result lost")
 	}
 	r = agentRequest(t, h, token, "POST", path+"/close", `{"reason":"local_end"}`, nil)
-	check(t, h, r, 200, "SessionResponse")
+	checkStatus(t, r, 200)
 	r = agentRequest(t, h, token, "PUT", path+"/decision", `{"decision":"accept","mode":"readonly"}`, nil)
 	wantError(t, r, 410, "SESSION_ENDED")
 	r = agentRequest(t, h, token, "GET", path, "", nil)
-	check(t, h, r, 200, "SessionResponse")
+	checkStatus(t, r, 200)
 	h.f.step(5 * time.Minute)
 	r = agentRequest(t, h, token, "GET", path, "", nil)
 	wantError(t, r, 401, "UNAUTHENTICATED")
@@ -145,14 +145,14 @@ func TestAgentReadonlyDiagnosticAndIdentity(t *testing.T) {
 func TestAgentDecisionReductionAndPollWake(t *testing.T) {
 	h := newWeb(t, nil)
 	r := agentRequest(t, h, h.handoff.Access, "POST", "/sessions", "{}", nil)
-	check(t, h, r, 201, "Registration")
+	checkStatus(t, r, 201)
 	sid := r.value["session"].(map[string]any)["id"].(string)
 	token := r.value["agent_token"].(string)
 	path := "/sessions/" + sid
 	r = agentRequest(t, h, token, "PUT", path+"/decision", `{"decision":"accept","mode":"full"}`, nil)
-	check(t, h, r, 200, "DecisionResponse")
+	checkStatus(t, r, 200)
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	r = agentRequest(t, h, token, "PUT", path+"/consent", `{"expected_revision":1,"mode":"full"}`, nil)
 	wantError(t, r, 403, "LOCAL_RECONSENT_REQUIRED")
 	r = agentRequest(t, h, token, "PUT", path+"/consent", `{"expected_revision":0,"mode":"full"}`, nil)
@@ -162,7 +162,7 @@ func TestAgentDecisionReductionAndPollWake(t *testing.T) {
 	r = agentRequest(t, h, token, "PUT", path+"/consent", `{"expected_revision":2,"mode":"readonly"}`, nil)
 	wantError(t, r, 409, "REVISION_CONFLICT")
 	r = agentRequest(t, h, token, "PUT", path+"/consent", `{"expected_revision":1,"mode":"readonly"}`, nil)
-	check(t, h, r, 200, "SessionResponse")
+	checkStatus(t, r, 200)
 	if r.value["session"].(map[string]any)["consent"].(map[string]any)["revision"] != float64(2) {
 		t.Fatal("reduction revision differs")
 	}

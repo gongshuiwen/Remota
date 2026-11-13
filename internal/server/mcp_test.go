@@ -61,10 +61,18 @@ func mcpPost(t *testing.T, h *webHarness, sid, body string) response {
 	return mcpRequest(t, h, h.handoff.MCP, sid, "POST", body, nil)
 }
 
+func checkMCP(t *testing.T, h *webHarness, r response, status int, model string) {
+	t.Helper()
+	checkStatus(t, r, status)
+	v, err := protocol.Parse(r.body)
+	must(t, err)
+	must(t, h.s.validator.Validate(model, v))
+}
+
 func mcpInit(t *testing.T, h *webHarness) string {
 	t.Helper()
 	r := mcpPost(t, h, "", `{"jsonrpc":"2.0","id":"init","method":"initialize","params":{"protocolVersion":"unsupported","capabilities":{},"clientInfo":{"name":"fixture","version":"1"}}}`)
-	check(t, h, r, 200, "MCPInitializeResponse")
+	checkMCP(t, h, r, 200, "MCPInitializeResponse")
 	sid := r.header.Get("Mcp-Session-Id")
 	if sid == "" {
 		t.Fatal("missing MCP transport session")
@@ -75,7 +83,7 @@ func mcpInit(t *testing.T, h *webHarness) string {
 func mcpReady(t *testing.T, h *webHarness, sid string) {
 	t.Helper()
 	r := mcpPost(t, h, sid, `{"jsonrpc":"2.0","method":"notifications/initialized"}`)
-	check(t, h, r, 202, "")
+	checkStatus(t, r, 202)
 }
 
 func rpcCode(t *testing.T, r response, status int, code float64) {
@@ -87,7 +95,7 @@ func rpcCode(t *testing.T, r response, status int, code float64) {
 
 func toolBody(t *testing.T, h *webHarness, r response, model string) object {
 	t.Helper()
-	check(t, h, r, 200, "MCPToolResponse")
+	checkMCP(t, h, r, 200, "MCPToolResponse")
 	result := r.value["result"].(map[string]any)
 	body := result["structuredContent"].(map[string]any)
 	var text object
@@ -125,14 +133,14 @@ func TestMCPHandshakeDiscoveryAndErrorLayers(t *testing.T) {
 		t.Fatal("initializing gate missing")
 	}
 	r = mcpPost(t, h, sid, `{"jsonrpc":"2.0","method":"notifications/initialized","params":{"_meta":{}}}`)
-	check(t, h, r, 202, "")
+	checkStatus(t, r, 202)
 	mcpReady(t, h, sid)
 	r = mcpPost(t, h, sid, `{"jsonrpc":"2.0","id":"ping-meta","method":"ping","params":{"_meta":{"progressToken":"p"}}}`)
 	if r.status != 200 || r.value["result"] == nil {
 		t.Fatalf("standard ping metadata rejected: %d %s", r.status, r.body)
 	}
 	r = mcpPost(t, h, sid, `{"jsonrpc":"2.0","id":"list","method":"tools/list"}`)
-	check(t, h, r, 200, "MCPToolsListResponse")
+	checkMCP(t, h, r, 200, "MCPToolsListResponse")
 	b, err := os.ReadFile("../../docs/contracts/acceptance/tools-list.json")
 	must(t, err)
 	var expected object
@@ -180,7 +188,7 @@ func TestMCPHandshakeDiscoveryAndErrorLayers(t *testing.T) {
 	rpcCode(t, mcpPost(t, h, sid, `{"jsonrpc":"2.0","id":1,"id":2,"method":"ping"}`), 400, -32700)
 	rpcCode(t, mcpPost(t, h, sid, `{"jsonrpc":"2.0","id":1,"method":"notifications/initialized"}`), 400, -32600)
 	r = mcpPost(t, h, sid, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":null}}`)
-	check(t, h, r, 202, "")
+	checkStatus(t, r, 202)
 	r = mcpPost(t, h, sid, `{"jsonrpc":"2.0","id":9007199254740991,"method":"ping"}`)
 	if r.status != 200 || !strings.Contains(string(r.body), `"id":9007199254740991`) {
 		t.Fatalf("RPC id not preserved: %s", r.body)
@@ -227,7 +235,7 @@ func TestMCPTransportIdentityAndTermination(t *testing.T) {
 	r = mcpRequest(t, h, h.handoff.Access, sid, "POST", ping, nil)
 	wantError(t, r, 401, "UNAUTHENTICATED")
 	created := h.do(t, "POST", "/api/v1/admin/credentials", createBody(strings.Repeat("a", 32), "mcp"), nil)
-	check(t, h, created, 201, "CredentialIssue")
+	checkStatus(t, created, 201)
 	otherToken := created.value["secret"].(string)
 	r = mcpRequest(t, h, otherToken, sid, "POST", "{", nil)
 	wantError(t, r, 401, "UNAUTHENTICATED")
@@ -237,7 +245,7 @@ func TestMCPTransportIdentityAndTermination(t *testing.T) {
 	r = mcpRequest(t, h, h.handoff.MCP, sid, "POST", "{", func(r *http.Request) { r.Header.Del("MCP-Protocol-Version") })
 	wantError(t, r, 400, "PROTOCOL_VERSION_REQUIRED")
 	r = mcpRequest(t, h, h.handoff.MCP, sid, "DELETE", "", nil)
-	check(t, h, r, 204, "")
+	checkStatus(t, r, 204)
 	r = mcpPost(t, h, sid, ping)
 	wantError(t, r, 404, "MCP_SESSION_NOT_FOUND")
 	sid = mcpInit(t, h)
@@ -295,7 +303,7 @@ func TestMCPTaskFlow(t *testing.T) {
 	sid := mcpInit(t, h)
 	mcpReady(t, h, sid)
 	r := agentRequest(t, h, h.handoff.Access, "POST", "/sessions", "{}", nil)
-	check(t, h, r, 201, "Registration")
+	checkStatus(t, r, 201)
 	deviceID, token := r.value["session"].(map[string]any)["id"].(string), r.value["agent_token"].(string)
 	path := "/sessions/" + deviceID
 	args := object{"session_id": deviceID, "request_id": strings.Repeat("d", 32), "command": "synthetic", "reason": "controlled fixture"}
@@ -304,7 +312,7 @@ func TestMCPTaskFlow(t *testing.T) {
 		t.Fatal("command bypassed local consent")
 	}
 	r = agentRequest(t, h, token, "PUT", path+"/decision", `{"decision":"accept","mode":"full"}`, nil)
-	check(t, h, r, 200, "DecisionResponse")
+	checkStatus(t, r, 200)
 	body = toolBody(t, h, callTool(t, h, sid, "no-lease", "request_command", args), "CommandToolBody")
 	if body["error"].(map[string]any)["code"] != "AGENT_UNAVAILABLE" {
 		t.Fatal("command bypassed lease")
@@ -318,7 +326,7 @@ func TestMCPTaskFlow(t *testing.T) {
 		t.Fatal("session lookup differs")
 	}
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	done := make(chan response, 1)
 	go func() { done <- callTool(t, h, sid, "submit", "request_command", args) }()
 	var submitted *mcp.CallToolResult
@@ -338,7 +346,7 @@ func TestMCPTaskFlow(t *testing.T) {
 		t.Fatal("submit not accepted")
 	}
 	r = mcpPost(t, h, sid, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"submit"}}`)
-	check(t, h, r, 202, "")
+	checkStatus(t, r, 202)
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -363,38 +371,38 @@ func TestMCPTaskFlow(t *testing.T) {
 		t.Fatal("concurrent task accepted")
 	}
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	events := r.value["events"].([]any)
 	if len(events) != 1 || events[0].(map[string]any)["type"] != "task.offer" {
 		t.Fatal("offer missing")
 	}
 	taskPath := path + "/tasks/" + taskID
 	r = agentRequest(t, h, token, "POST", taskPath+"/start", `{"consent_revision":1}`, nil)
-	check(t, h, r, 200, "StartResponse")
+	checkStatus(t, r, 200)
 	grant := r.value["grant"].(map[string]any)
 	grantID := grant["id"].(string)
 	if spec := r.value["grant"].(map[string]any)["spec"].(map[string]any); spec["shell"] != "auto" || spec["timeout_seconds"] != float64(30) {
 		t.Fatal("command defaults differ")
 	}
 	r = agentRequest(t, h, token, "POST", taskPath+"/start", `{"consent_revision":1}`, nil)
-	check(t, h, r, 200, "StartResponse")
+	checkStatus(t, r, 200)
 	if !reflect.DeepEqual(grant, r.value["grant"]) {
 		t.Fatal("duplicate start changed the grant")
 	}
 	started := fmt.Sprintf(`{"kind":"started","grant_id":%q}`, grantID)
 	r = agentRequest(t, h, token, "POST", taskPath+"/receipts", started, nil)
-	check(t, h, r, 200, "TaskResponse")
+	checkStatus(t, r, 200)
 	if r.value["task"].(map[string]any)["phase"] != "running" {
 		t.Fatal("started receipt did not update task")
 	}
 	result := fmt.Sprintf(`{"grant_id":%q,"consent_revision":1,"outcome":"succeeded","exit_code":0,"stdout":{"text":"ok","captured_bytes":2,"truncated":false},"stderr":{"text":"","captured_bytes":0,"truncated":false}}`, grantID)
 	r = agentRequest(t, h, token, "POST", taskPath+"/result", result, nil)
-	check(t, h, r, 200, "TaskResponse")
+	checkStatus(t, r, 200)
 	if r.value["task"].(map[string]any)["outcome"] != "succeeded" {
 		t.Fatal("result did not settle task")
 	}
 	r = agentRequest(t, h, token, "POST", taskPath+"/result", result, nil)
-	check(t, h, r, 200, "TaskResponse")
+	checkStatus(t, r, 200)
 	body = toolBody(t, h, callTool(t, h, sid, "query", "get_task", object{"session_id": deviceID, "request_id": args["request_id"]}), "TaskToolBody")
 	task := body["data"].(map[string]any)["task"].(map[string]any)
 	if task["outcome"] != "succeeded" || task["result"].(map[string]any)["stdout"].(map[string]any)["text"] != "ok" {
@@ -416,17 +424,17 @@ func TestMCPTaskFlow(t *testing.T) {
 	nextID := body["data"].(map[string]any)["task"].(map[string]any)["id"].(string)
 	nextPath := path + "/tasks/" + nextID
 	r = agentRequest(t, h, token, "POST", nextPath+"/start", `{"consent_revision":1}`, nil)
-	check(t, h, r, 200, "StartResponse")
+	checkStatus(t, r, 200)
 	nextGrant := r.value["grant"].(map[string]any)["id"].(string)
 	r = agentRequest(t, h, token, "POST", nextPath+"/receipts", fmt.Sprintf(`{"kind":"started","grant_id":%q}`, nextGrant), nil)
-	check(t, h, r, 200, "TaskResponse")
+	checkStatus(t, r, 200)
 	body = toolBody(t, h, callTool(t, h, sid, "stop", "cancel_task", object{"session_id": deviceID, "task_id": nextID}), "CancelToolBody")
 	stopping := body["data"].(map[string]any)["task"].(map[string]any)
 	if stopping["phase"] != "stopping" || stopping["execution"].(map[string]any)["state"] != "started" {
 		t.Fatal("cancel falsely reported exit")
 	}
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	seenCancel := false
 	for _, e := range r.value["events"].([]any) {
 		if e.(map[string]any)["type"] == "task.cancel" {
@@ -438,16 +446,16 @@ func TestMCPTaskFlow(t *testing.T) {
 	}
 	nextResult := fmt.Sprintf(`{"grant_id":%q,"consent_revision":1,"outcome":"succeeded","exit_code":0,"stdout":{"text":"","captured_bytes":0,"truncated":false},"stderr":{"text":"","captured_bytes":0,"truncated":false}}`, nextGrant)
 	r = agentRequest(t, h, token, "POST", nextPath+"/result", nextResult, nil)
-	check(t, h, r, 200, "TaskResponse")
+	checkStatus(t, r, 200)
 	if r.value["task"].(map[string]any)["outcome"] != "cancelled" {
 		t.Fatal("late result overrode cancellation")
 	}
 	r = agentRequest(t, h, token, "POST", path+"/close", `{"reason":"local_end"}`, nil)
-	check(t, h, r, 200, "SessionResponse")
+	checkStatus(t, r, 200)
 	r = agentRequest(t, h, token, "POST", taskPath+"/result", result, nil)
 	wantError(t, r, 410, "SESSION_ENDED")
 	r = agentRequest(t, h, token, "POST", taskPath+"/receipts", started, nil)
-	check(t, h, r, 200, "TaskResponse")
+	checkStatus(t, r, 200)
 	body = toolBody(t, h, callTool(t, h, sid, "ended", "get_task", object{"session_id": deviceID, "task_id": taskID}), "TaskToolBody")
 	task = body["data"].(map[string]any)["task"].(map[string]any)
 	if task["details_available"] != false || task["spec"] != nil || task["result"] != nil {
@@ -463,9 +471,9 @@ func TestMCPDiagnostics(t *testing.T) {
 	deviceID, token := r.value["session"].(map[string]any)["id"].(string), r.value["agent_token"].(string)
 	path := "/sessions/" + deviceID
 	r = agentRequest(t, h, token, "PUT", path+"/decision", `{"decision":"accept","mode":"readonly"}`, nil)
-	check(t, h, r, 200, "DecisionResponse")
+	checkStatus(t, r, 200)
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	body := toolBody(t, h, callTool(t, h, sid, "readonly-command", "request_command", object{"session_id": deviceID, "request_id": strings.Repeat("f", 32), "command": "synthetic", "reason": "fixture"}), "CommandToolBody")
 	if body["error"].(map[string]any)["code"] != "LOCAL_CONSENT_REQUIRED" {
 		t.Fatal("read-only session accepted a command")
@@ -477,7 +485,7 @@ func TestMCPDiagnostics(t *testing.T) {
 		done := make(chan response, 1)
 		go func() { done <- callTool(t, h, sid, tc.name, tc.name, object{"session_id": deviceID}) }()
 		r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-		check(t, h, r, 200, "PollResult")
+		checkStatus(t, r, 200)
 		events := r.value["events"].([]any)
 		var callID string
 		for _, e := range events {
@@ -490,7 +498,7 @@ func TestMCPDiagnostics(t *testing.T) {
 			t.Fatal("diagnostic request not delivered")
 		}
 		r = agentRequest(t, h, token, "POST", path+"/calls/"+callID+"/result", `{"consent_revision":1,"result":`+tc.result+`}`, nil)
-		check(t, h, r, 204, "")
+		checkStatus(t, r, 204)
 		select {
 		case r = <-done:
 		case <-time.After(2 * time.Second):
@@ -512,26 +520,26 @@ func TestMCPDiagnosticCancellationAndTimeout(t *testing.T) {
 			deviceID, token := r.value["session"].(map[string]any)["id"].(string), r.value["agent_token"].(string)
 			path := "/sessions/" + deviceID
 			r = agentRequest(t, h, token, "PUT", path+"/decision", `{"decision":"accept","mode":"readonly"}`, nil)
-			check(t, h, r, 200, "DecisionResponse")
+			checkStatus(t, r, 200)
 			r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-			check(t, h, r, 200, "PollResult")
+			checkStatus(t, r, 200)
 			done := make(chan response, 1)
 			go func() { done <- callTool(t, h, sid, "waiting", "ping_agent", object{"session_id": deviceID}) }()
 			r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-			check(t, h, r, 200, "PollResult")
+			checkStatus(t, r, 200)
 			if len(r.value["events"].([]any)) == 0 {
 				t.Fatal("diagnostic not sent")
 			}
 			switch name {
 			case "cancel":
 				r = mcpPost(t, h, sid, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"waiting"}}`)
-				check(t, h, r, 202, "")
+				checkStatus(t, r, 202)
 			case "timeout":
 				h.f.step(10 * time.Second)
 				h.s.Core.Sweep()
 			case "delete":
 				r = mcpRequest(t, h, h.handoff.MCP, sid, "DELETE", "", nil)
-				check(t, h, r, 204, "")
+				checkStatus(t, r, 204)
 			case "admin_end":
 				h.s.mcp.mu.Lock()
 				clientID := h.s.mcp.bindings[sid].clientID
@@ -564,7 +572,7 @@ func TestMCPCredentialRevocation(t *testing.T) {
 	id, err := h.s.Core.AuthenticateCredential(h.handoff.MCP, "mcp")
 	must(t, err)
 	r := h.do(t, "POST", "/api/v1/admin/credentials/"+id+"/revoke", "{}", nil)
-	check(t, h, r, 200, "CredentialRevokeResponse")
+	checkStatus(t, r, 200)
 	r = mcpPost(t, h, sid, `{"jsonrpc":"2.0","id":"after","method":"ping"}`)
 	wantError(t, r, 401, "UNAUTHENTICATED")
 	if r.header.Get("WWW-Authenticate") != "Bearer" {
@@ -588,9 +596,9 @@ func TestMCPConcurrentRPCLimit(t *testing.T) {
 	deviceID, token := r.value["session"].(map[string]any)["id"].(string), r.value["agent_token"].(string)
 	path := "/sessions/" + deviceID
 	r = agentRequest(t, h, token, "PUT", path+"/decision", `{"decision":"accept","mode":"readonly"}`, nil)
-	check(t, h, r, 200, "DecisionResponse")
+	checkStatus(t, r, 200)
 	r = agentRequest(t, h, token, "POST", path+"/poll", `{"consent_revision":1,"ack_event_ids":[]}`, nil)
-	check(t, h, r, 200, "PollResult")
+	checkStatus(t, r, 200)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 16)
@@ -649,7 +657,7 @@ func TestMCPConcurrentRPCLimit(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	r = agentRequest(t, h, token, "POST", path+"/calls/"+events[0].CallID+"/result", `{"consent_revision":1,"result":{"pong":true,"agent_time":"2026-11-09T04:00:00.000Z"}}`, nil)
-	check(t, h, r, 204, "")
+	checkStatus(t, r, 204)
 	deadline = time.Now().Add(2 * time.Second)
 	for i := 0; time.Now().Before(deadline); i++ {
 		r = mcpPost(t, h, sid, fmt.Sprintf(`{"jsonrpc":"2.0","id":"after-completion-%d","method":"ping"}`, i))
@@ -659,8 +667,8 @@ func TestMCPConcurrentRPCLimit(t *testing.T) {
 		wantError(t, r, 503, "CAPACITY_EXCEEDED")
 		time.Sleep(10 * time.Millisecond)
 	}
-	check(t, h, r, 200, "")
+	checkStatus(t, r, 200)
 	// Ending the client must still wake all other in-flight diagnostics.
 	r = mcpRequest(t, h, h.handoff.MCP, sid, "DELETE", "", nil)
-	check(t, h, r, 204, "")
+	checkStatus(t, r, 204)
 }

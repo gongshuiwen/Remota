@@ -10,31 +10,12 @@ import (
 )
 
 func agentRoute(path string) (action, sid, id, method string) {
-	p := strings.Split(strings.TrimPrefix(path, "/api/v1/agent/"), "/")
-	if len(p) == 1 && p[0] == "sessions" {
-		return "register", "", "", "POST"
+	r, params := matchRoute(agentRoutes, path)
+	id = params["call_id"]
+	if id == "" {
+		id = params["tid"]
 	}
-	if len(p) == 2 && p[0] == "sessions" && p[1] != "" {
-		return "get", p[1], "", "GET"
-	}
-	if len(p) == 3 && p[0] == "sessions" && p[1] != "" {
-		switch p[2] {
-		case "decision", "consent":
-			return p[2], p[1], "", "PUT"
-		case "poll", "close":
-			return p[2], p[1], "", "POST"
-		}
-	}
-	if len(p) == 5 && p[0] == "sessions" && p[1] != "" && p[2] == "calls" && p[3] != "" && p[4] == "result" {
-		return "call_result", p[1], p[3], "POST"
-	}
-	if len(p) == 5 && p[0] == "sessions" && p[1] != "" && p[2] == "tasks" && p[3] != "" {
-		switch p[4] {
-		case "start", "receipts", "result":
-			return "task_" + p[4], p[1], p[3], "POST"
-		}
-	}
-	return "", "", "", ""
+	return r.Action, params["sid"], id, r.Method
 }
 
 func agentBearer(r *http.Request) (string, error) {

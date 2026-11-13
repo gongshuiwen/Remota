@@ -12,6 +12,7 @@
 |---|---|
 | 组件、状态归属与部署边界 | [整体架构](docs/architecture.md) |
 | HTTP、身份、期限、错误与规则归属 | [契约总则](docs/contracts/README.md) |
+| Agent、Admin 与健康检查的机器可读 HTTP 契约 | [OpenAPI YAML](docs/contracts/openapi.yaml) |
 | 设备接入、本机授权与租约 | [设备通道](docs/contracts/agent.md) |
 | 命令、开始许可、证据与结算 | [任务语义](docs/contracts/tasks.md) |
 | 管理登录、快照与凭据 | [管理员通道](docs/contracts/admin.md) |
@@ -22,7 +23,7 @@
 
 ## 校验入口
 
-- [静态契约校验](docs/contracts/acceptance/README.md#最小校验入口)：检查 Schema、样例、工具定义和文档链接。
+- [静态契约校验](docs/contracts/acceptance/README.md#最小校验入口)：检查 OpenAPI、Schema、样例、生成内容、工具定义和文档链接，并提供 HTTP 契约测试入口。
 - [技术验证复跑](docs/implementation.md#复跑入口与收口条件)：运行独立验证模块；平台结果以该文档记录为准。
 - [控制核心验证](docs/implementation.md#21-控制核心结果)：从根模块运行状态机与竞态测试。
 - [启动与管理底座](docs/implementation.md#22-启动与管理底座结果)：运行服务、检查恢复状态，并复跑服务端验证。

@@ -86,38 +86,13 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 }
 
 func route(path string) (action, id, method string) {
-	if path == "/healthz" {
-		return "health", "", "GET"
-	}
-	if !strings.HasPrefix(path, "/api/v1/admin/") {
-		return "", "", ""
-	}
-	p := strings.Split(strings.TrimPrefix(path, "/api/v1/admin/"), "/")
-	if len(p) == 1 {
-		switch p[0] {
-		case "login", "logout":
-			return p[0], "", "POST"
-		case "state":
-			return "state", "", "GET"
-		case "credentials":
-			return "create", "", "POST"
+	r, params := matchRoute(adminRoutes, path)
+	for _, name := range []string{"cid", "sid", "mcl_id"} {
+		if value := params[name]; value != "" {
+			return r.Action, value, r.Method
 		}
 	}
-	if len(p) == 2 && p[0] == "sessions" && p[1] != "" {
-		return "note", p[1], "PATCH"
-	}
-	if len(p) == 3 && p[1] != "" {
-		if p[0] == "credentials" && (p[2] == "rotate" || p[2] == "revoke") {
-			return p[2], p[1], "POST"
-		}
-		if p[0] == "sessions" && p[2] == "end" {
-			return "end_session", p[1], "POST"
-		}
-		if p[0] == "clients" && p[2] == "end" {
-			return "end_client", p[1], "POST"
-		}
-	}
-	return "", "", ""
+	return r.Action, "", r.Method
 }
 
 func cookieToken(r *http.Request) (string, error) {
