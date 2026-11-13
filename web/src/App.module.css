@@ -641,6 +641,76 @@ span.muted {
 .spinning {
   animation: spin 1.2s linear infinite;
 }
+.actionPanel {
+  background: white;
+  border: 1px solid #dfe6ef;
+  border-left: 3px solid #4969d4;
+  border-radius: 7px;
+  padding: 22px;
+  margin-bottom: 24px;
+}
+.actionPanel h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+.targetId {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #607088;
+  margin-bottom: 20px;
+}
+.actionPanel label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.actionPanel input {
+  width: 100%;
+  padding: 11px;
+  border: 1px solid #dfe6ef;
+  border-radius: 5px;
+  font-size: 13px;
+}
+.actionPanel p {
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.actionButtons,
+.rowActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.actionButtons {
+  margin-top: 18px;
+}
+.actionButtons .primaryButton {
+  width: auto;
+  margin: 0;
+  padding: 10px 16px;
+}
+.dangerButton {
+  background: #fff1f1;
+  color: #a84747;
+  border: 1px solid #f5d8d8;
+  border-radius: 5px;
+  padding: 10px 16px;
+  font-size: 12px;
+}
+.dangerText {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+  color: #a84747;
+  white-space: nowrap;
+}
+.rowActions .textButton {
+  white-space: nowrap;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);

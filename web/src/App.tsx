@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useAdmin } from './useAdmin';
-import type { Credential, MCPClient, Session, Snapshot } from './api';
+import type { ChangeResult } from './useAdmin';
+import type { Credential, MCPClient, ResourceChange, Session, Snapshot } from './api';
+import ResourceAction from './ResourceAction';
 import s from './App.module.css';
 
 type IconName = 'devices' | 'clients' | 'credentials' | 'refresh' | 'exit' | 'search' | 'shield';
@@ -136,9 +138,12 @@ export function App() {
       snapshot={view.snapshot}
       receivedAt={view.receivedAt}
       refreshing={view.refreshing}
+      mutating={view.mutating}
+      needsCheck={view.needsCheck}
       error={view.error}
       onRefresh={admin.refresh}
       onLogout={admin.logout}
+      onChange={admin.mutate}
     />
   );
 }
@@ -244,21 +249,28 @@ function Dashboard({
   snapshot,
   receivedAt,
   refreshing,
+  mutating,
+  needsCheck,
   error,
   onRefresh,
   onLogout,
+  onChange,
 }: {
   snapshot: Snapshot;
   receivedAt: number;
   refreshing: boolean;
+  mutating: boolean;
+  needsCheck: boolean;
   error?: string;
-  onRefresh: () => Promise<void>;
+  onRefresh: () => Promise<boolean>;
   onLogout: () => Promise<void>;
+  onChange: (change: ResourceChange) => Promise<ChangeResult | undefined>;
 }) {
   const [tab, setTab] = useState<Tab>('devices');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [transportOpen, setTransportOpen] = useState(false);
+  const [action, setAction] = useState<ResourceChange>();
   const now = Date.parse(snapshot.server_time) + Math.max(0, performance.now() - receivedAt);
   const needle = query.toLowerCase();
   const match = (...fields: (string | undefined)[]) =>
@@ -350,7 +362,7 @@ function Dashboard({
             <span className={s.statusDot} />
             管理快照
             <span className={s.topbarDivider} />
-            只读查看
+            资源管理
           </div>
           <button className={s.textButton} onClick={() => void onLogout()}>
             <Icon name="exit" />
@@ -367,7 +379,7 @@ function Dashboard({
               <span>最近更新 {stamp(snapshot.server_time)}</span>
               <button
                 className={s.secondaryButton}
-                disabled={refreshing}
+                disabled={refreshing || mutating}
                 onClick={() => void onRefresh()}
               >
                 <span className={refreshing ? s.spinning : undefined}>
@@ -381,6 +393,18 @@ function Dashboard({
             <div className={s.error} role="alert">
               {error}
             </div>
+          )}
+          {action && (
+            <ResourceAction
+              key={`${action.kind}:${action.id}`}
+              initial={action}
+              snapshot={snapshot}
+              pending={mutating}
+              needsCheck={needsCheck}
+              onSubmit={onChange}
+              onRefresh={onRefresh}
+              onClose={() => setAction(undefined)}
+            />
           )}
           <dl className={s.metrics}>
             <div>
@@ -486,9 +510,20 @@ function Dashboard({
                 aria-label={`${title.name}数据，可横向滚动`}
               >
                 {tab === 'devices' ? (
-                  <SessionsTable values={sessions} now={now} />
+                  <SessionsTable
+                    values={sessions}
+                    now={now}
+                    pending={mutating}
+                    onAction={setAction}
+                  />
                 ) : tab === 'clients' ? (
-                  <ClientsTable values={clients} now={now} credentialNames={credentialNames} />
+                  <ClientsTable
+                    values={clients}
+                    now={now}
+                    credentialNames={credentialNames}
+                    pending={mutating}
+                    onAction={setAction}
+                  />
                 ) : (
                   <CredentialsTable values={credentials} now={now} />
                 )}
@@ -561,9 +596,19 @@ function RecordTable({ headers, children }: { headers: string[]; children: React
   );
 }
 
-function SessionsTable({ values, now }: { values: Session[]; now: number }) {
+function SessionsTable({
+  values,
+  now,
+  pending,
+  onAction,
+}: {
+  values: Session[];
+  now: number;
+  pending: boolean;
+  onAction: (change: ResourceChange) => void;
+}) {
   return (
-    <RecordTable headers={['设备 / 会话', '状态', '本机授权', '连接观察', '到期时间']}>
+    <RecordTable headers={['设备 / 会话', '状态', '本机授权', '连接观察', '到期时间', '操作']}>
       {values.map((value) => (
         <tr key={value.id}>
           <td>
@@ -608,6 +653,33 @@ function SessionsTable({ values, now }: { values: Session[]; now: number }) {
           <td>
             <Expiry value={value.expires_at} now={now} />
           </td>
+          <td>
+            {value.state !== 'ended' && (
+              <div className={s.rowActions}>
+                <button
+                  className={s.textButton}
+                  disabled={pending}
+                  onClick={() =>
+                    onAction({
+                      kind: 'note',
+                      id: value.id,
+                      note: value.note,
+                      expected_note_revision: value.note_revision,
+                    })
+                  }
+                >
+                  编辑备注
+                </button>
+                <button
+                  className={s.dangerText}
+                  disabled={pending}
+                  onClick={() => onAction({ kind: 'endSession', id: value.id })}
+                >
+                  结束会话
+                </button>
+              </div>
+            )}
+          </td>
         </tr>
       ))}
     </RecordTable>
@@ -618,13 +690,17 @@ function ClientsTable({
   values,
   now,
   credentialNames,
+  pending,
+  onAction,
 }: {
   values: MCPClient[];
   now: number;
   credentialNames: Map<string, string>;
+  pending: boolean;
+  onAction: (change: ResourceChange) => void;
 }) {
   return (
-    <RecordTable headers={['客户端', '生命周期', '活动观察', '关联凭据', '到期时间']}>
+    <RecordTable headers={['客户端', '生命周期', '活动观察', '关联凭据', '到期时间', '操作']}>
       {values.map((value) => (
         <tr key={value.id}>
           <td>
@@ -656,6 +732,17 @@ function ClientsTable({
           </td>
           <td>
             <Expiry value={value.expires_at} now={now} />
+          </td>
+          <td>
+            {value.lifecycle !== 'ended' && (
+              <button
+                className={s.dangerText}
+                disabled={pending}
+                onClick={() => onAction({ kind: 'endClient', id: value.id })}
+              >
+                结束客户端
+              </button>
+            )}
           </td>
         </tr>
       ))}

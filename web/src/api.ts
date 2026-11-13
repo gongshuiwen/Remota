@@ -14,6 +14,7 @@ export interface Session {
   connection: { activity: 'never_seen' | 'recent' | 'stale'; last_seen_at?: string };
   access_credential_id: string;
   note: string;
+  note_revision: number;
   cached_info?: { hostname: string; os: string; arch: string; agent_version: string };
 }
 
@@ -76,9 +77,33 @@ const snapshotModel = validator.compile<Snapshot>({ $ref: `${schema.$id}#/$defs/
 const loginModel = validator.compile<{ csrf_token: string; expires_at: string }>({
   $ref: `${schema.$id}#/$defs/AdminLoginResponse`,
 });
+const errorModel = validator.compile<{ error: { code: string } }>({
+  $ref: `${schema.$id}#/$defs/Error`,
+});
+const noteModel = validator.compile<{ session: { id: string } }>({
+  $ref: `${schema.$id}#/$defs/AdminSessionResponse`,
+});
+const endSessionModel = validator.compile<{ session: { id: string; state: string } }>({
+  $ref: `${schema.$id}#/$defs/SessionResponse`,
+});
+const endClientModel = validator.compile<{ client: { id: string; lifecycle: string } }>({
+  $ref: `${schema.$id}#/$defs/MCPClientEndResponse`,
+});
+
+export type ResourceChange =
+  | { kind: 'note'; id: string; note: string; expected_note_revision: number }
+  | { kind: 'endSession' | 'endClient'; id: string };
+
+const isJSON = (response: Response) =>
+  /^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?$/i.test(
+    response.headers.get('Content-Type')?.trim() ?? '',
+  );
 
 export class ApiError extends Error {
-  constructor(public status: number) {
+  constructor(
+    public status: number,
+    public code?: string,
+  ) {
     super('Admin request failed');
   }
 }
@@ -87,11 +112,14 @@ async function request(
   path: string,
   signal: AbortSignal,
   expectedStatus: 200 | 204,
-  body?: object,
-  csrf?: string,
+  {
+    body,
+    csrf,
+    method = body ? 'POST' : 'GET',
+  }: { body?: object; csrf?: string; method?: 'GET' | 'POST' | 'PATCH' } = {},
 ): Promise<Response> {
   const response = await fetch(`/api/v1/admin/${path}`, {
-    method: body ? 'POST' : 'GET',
+    method,
     credentials: 'same-origin',
     cache: 'no-store',
     redirect: 'error',
@@ -102,14 +130,13 @@ async function request(
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
   });
-  if (!response.ok) throw new ApiError(response.status);
-  if (
-    response.status !== expectedStatus ||
-    (expectedStatus !== 204 &&
-      !/^application\/json(?:\s*;\s*charset\s*=\s*(?:utf-8|"utf-8"))?$/i.test(
-        response.headers.get('Content-Type')?.trim() ?? '',
-      ))
-  )
+  if (!response.ok) {
+    const body: unknown = isJSON(response)
+      ? await response.json().catch(() => undefined)
+      : undefined;
+    throw new ApiError(response.status, errorModel(body) ? body.error.code : undefined);
+  }
+  if (response.status !== expectedStatus || (expectedStatus !== 204 && !isJSON(response)))
     throw new ApiError(0);
   return response;
 }
@@ -123,12 +150,34 @@ export async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
 }
 
 export async function signIn(password: string, signal: AbortSignal): Promise<string> {
-  const response = await request('login', signal, 200, { password });
+  const response = await request('login', signal, 200, { body: { password } });
   const body: unknown = await response.json();
   if (!loginModel(body)) throw new ApiError(0);
   return body.csrf_token;
 }
 
 export async function signOut(csrf: string, signal: AbortSignal): Promise<void> {
-  await request('logout', signal, 204, {}, csrf);
+  await request('logout', signal, 204, { body: {}, csrf });
+}
+
+export async function changeResource(
+  change: ResourceChange,
+  csrf: string,
+  epoch: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const note = change.kind === 'note';
+  const path = `${change.kind === 'endClient' ? 'clients' : 'sessions'}/${encodeURIComponent(change.id)}${note ? '' : '/end'}`;
+  const response = await request(path, signal, 200, {
+    method: note ? 'PATCH' : 'POST',
+    body: note ? { note: change.note, expected_note_revision: change.expected_note_revision } : {},
+    csrf,
+  });
+  const body: unknown = await response.json();
+  const valid = note
+    ? noteModel(body) && body.session.id === change.id
+    : change.kind === 'endSession'
+      ? endSessionModel(body) && body.session.id === change.id && body.session.state === 'ended'
+      : endClientModel(body) && body.client.id === change.id && body.client.lifecycle === 'ended';
+  if (!valid || response.headers.get('X-Remota-Epoch') !== epoch) throw new ApiError(0);
 }

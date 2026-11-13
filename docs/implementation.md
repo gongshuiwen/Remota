@@ -328,6 +328,8 @@ go test -mod=readonly -run '^TestWindowsMCPAgent$' -count=1 -v -timeout=6m ./tes
 
 第一批已接入登录、退出、登录恢复及设备会话、MCP 客户端和凭据的只读快照；入口为 [App.tsx](../web/src/App.tsx)。本机授权与进程事实仍只通过现有 API 的投影展示。搜索和凭据状态筛选在当前页面内执行，统计始终来自完整快照。可见页面每 5 秒刷新，同一时刻最多一个请求；隐藏时暂停，失败保留并标出旧数据。设备会话的 5 分钟提醒、凭据的 7 天提醒及到期估算沿用现有交互规则。
 
+第二批已接入备注编辑、结束设备会话和 MCP 客户端；共用[就地操作区](../web/src/ResourceAction.tsx)，结束前明确确认。备注草稿与基准修订独立于刷新保存，冲突后展示当前备注并由操作者显式采用当前修订，交互规则见[管理台规范](product/console.md#快照与列表)。修改串行发送，期间取消旧读取并暂缓轮询，完成后重新读取完整快照；明确的参数或来源拒绝直接提示，不追加刷新。应答丢失保留结果未知，不自动重发，核对失败时继续阻止修改直至取得有效快照，核对状态由会话 Hook 统一维护。注销、身份变化与页面销毁均中止本页修改请求并丢弃迟到应答；结束确认与回收状态分别展示。
+
 [会话 Hook](../web/src/useAdmin.ts)统一处理登录代际、取消与过期。退出先清除页面数据，再等待服务端确认；401 退出仍清理本地状态，网络失败显示未取得确认。登录与退出请求串行，旧响应、旧 CSRF 和被取消的刷新不能更新后续登录。口令提交后立即清空输入，CSRF 仅在页内存保存；名称、备注和其他远端文本按纯文本渲染。[请求封装](../web/src/api.ts)先核对约定的 HTTP 状态和 JSON 媒体类型，再直接引用权威消息 Schema，以 Ajv Draft 2020-12 和格式断言校验应答，TypeScript 仅声明界面使用的 DTO。
 
 前端使用 Node 22.23.2、npm 10.9.8 完成验证，Node 范围以 package.json 的 engines 为准。React/React DOM 19.3.1、TypeScript 7.0.2、Vite 8.3.8、React 插件 6.3.0、Ajv 8.20.0/ajv-formats 3.0.1、Vitest 5.1.0、Playwright 1.65.0 及全部直接开发依赖均使用精确版本，并提交 npm 锁文件。运行页面不加载外部字体、脚本或图片。
@@ -362,12 +364,13 @@ npx playwright install chromium
 npm run test:browser
 ```
 
-Windows 的浏览器测试通过 WSL/Linux 运行真实服务端，需要可用的 localhost 转发和与本机架构相同的 WSL。`REMOTA_E2E_WSL_DISTRO` 可指定发行版，否则使用默认发行版；Linux 直接启动测试服务。服务端测试程序每次运行只编译一次，各浏览器场景分别启动服务并建立独立 SQLite，结束时关闭服务并清理状态；编译或路径转换失败也清理构建目录。测试服务固定占用 `127.0.0.1:18080`，前端固定占用 `127.0.0.1:4173`，场景串行执行，bootstrap 秘密仅经私有管道进入当前场景夹具。已安装 Edge 时可设置 `REMOTA_BROWSER_CHANNEL=msedge` 使用该浏览器；本次实际使用 Windows 原生 Edge（Chromium）验收，并检查了桌面与移动端截图，三个场景使用 `--repeat-each=2` 共六次执行通过。
+Windows 的浏览器测试通过 WSL/Linux 运行真实服务端，需要可用的 localhost 转发和与本机架构相同的 WSL。`REMOTA_E2E_WSL_DISTRO` 可指定发行版，否则使用默认发行版；Linux 直接启动测试服务。服务端测试程序每次运行只编译一次，各浏览器场景分别启动服务并建立独立 SQLite，结束时关闭服务并清理状态；编译或路径转换失败也清理构建目录。测试服务固定占用 `127.0.0.1:18080`，前端固定占用 `127.0.0.1:4173`，场景串行执行，bootstrap 秘密仅经私有管道进入当前场景夹具。已安装 Edge 时可设置 `REMOTA_BROWSER_CHANNEL=msedge` 使用该浏览器；本次实际使用 Windows 原生 Edge（Chromium）验收，并检查了桌面与移动端截图，六个场景使用 `--repeat-each=2` 共十二次执行通过。
 
 | 验证范围 | 入口 |
 |---|---|
 | 刷新单请求与隐藏暂停、失败保留旧数据、401/到期/身份变更清理、旧成功或失败响应不能跨登录、退出结果未知与认证请求串行、Schema 拒绝、筛选与数据清除 | [组件与会话用例](../web/src/useAdmin.test.tsx) |
-| 应答状态与 JSON 媒体类型、编译失败后的目录清理与原始错误保留 | [请求校验](../web/src/api.test.ts)、[启动器异常清理](../web/e2e/server.test.ts) |
-| 真实 HTTP 登录正反例、HttpOnly/SameSite/Path Cookie、JS 无法读取 Cookie、错误 CSRF 被拒绝、三类列表与筛选、纯文本渲染、退出网络失败后重新登录、重载恢复和身份失效、移动端无页面横向溢出 | [3 个浏览器场景](../web/e2e/console.spec.ts)、[Linux 测试服务](../tests/integration/console_linux_test.go) |
+| 修改串行与旧读取隔离、核对门槛与自动刷新恢复、迟到修改成功或 401 应答隔离、修改 401/CSRF 清理、明确拒绝不补读、核对期间禁止采用修订、自动刷新保留草稿、结束与回收分别展示 | [组件与会话用例](../web/src/useAdmin.test.tsx) |
+| 应答状态与 JSON 媒体类型、修改方法/正文/Schema/资源 ID/epoch、编译失败后的目录清理与原始错误保留 | [请求校验](../web/src/api.test.ts)、[启动器异常清理](../web/e2e/server.test.ts) |
+| 真实 HTTP 登录正反例、Cookie/CSRF、三类列表与筛选、纯文本渲染、退出与恢复、修订冲突保留草稿后保存、分别结束客户端与设备、成功处理后丢失修改应答、移动端无页面横向溢出 | [6 个浏览器场景](../web/e2e/console.spec.ts)、[Linux 测试服务](../tests/integration/console_linux_test.go) |
 
-本批尚未实现备注修改、结束会话或客户端、凭据签发/轮换/撤销、一次性秘密弹窗和中英文切换。构建产物位于 web/dist，服务端静态资源内嵌及真实 HTTPS 浏览器验收留待后续集成；当前仅提供开发入口。Windows 原生服务端存储问题及各平台原生验收缺口继续按前文记录处理。
+后续仍需实现凭据签发/轮换/撤销、一次性秘密弹窗和中英文切换。构建产物位于 web/dist，服务端静态资源内嵌及真实 HTTPS 浏览器验收留待后续集成；当前仅提供开发入口。Windows 原生服务端存储问题及各平台原生验收缺口继续按前文记录处理。

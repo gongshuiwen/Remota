@@ -32,33 +32,9 @@ async function registerSession(request: APIRequestContext, access: string) {
   return result.json();
 }
 
-async function seedLists(request: APIRequestContext, service: Service) {
-  const ids: string[] = [];
-  for (let index = 0; index < 3; index++) {
-    const registration = await registerSession(request, service.access);
-    ids.push(registration.session.id as string);
-    if (index > 0) {
-      const headers = { Authorization: `Bearer ${registration.agent_token}` };
-      expect(
-        (
-          await request.put(`/api/v1/agent/sessions/${registration.session.id}/decision`, {
-            headers,
-            data: { decision: 'accept', mode: 'readonly' },
-          })
-        ).status(),
-      ).toBe(200);
-      expect(
-        (
-          await request.post(`/api/v1/agent/sessions/${registration.session.id}/poll`, {
-            headers,
-            data: { consent_revision: 1, ack_event_ids: [] },
-          })
-        ).status(),
-      ).toBe(200);
-    }
-  }
+async function connectClient(request: APIRequestContext, mcp: string) {
   const mcpHeaders = {
-    Authorization: `Bearer ${service.mcp}`,
+    Authorization: `Bearer ${mcp}`,
     Accept: 'application/json, text/event-stream',
   };
   const initialized = await request.post('/mcp', {
@@ -87,16 +63,49 @@ async function seedLists(request: APIRequestContext, service: Service) {
       })
     ).status(),
   ).toBe(202);
+}
+
+async function adminHeaders(request: APIRequestContext, password: string) {
   const auth = await request.post('/api/v1/admin/login', {
     headers: { Origin: origin },
-    data: { password: service.password },
+    data: { password: password },
   });
   expect(auth.status()).toBe(200);
   const { csrf_token } = await auth.json();
+  return { Origin: origin, 'X-CSRF-Token': csrf_token as string };
+}
+
+async function seedLists(request: APIRequestContext, service: Service) {
+  const ids: string[] = [];
+  for (let index = 0; index < 3; index++) {
+    const registration = await registerSession(request, service.access);
+    ids.push(registration.session.id as string);
+    if (index > 0) {
+      const headers = { Authorization: `Bearer ${registration.agent_token}` };
+      expect(
+        (
+          await request.put(`/api/v1/agent/sessions/${registration.session.id}/decision`, {
+            headers,
+            data: { decision: 'accept', mode: 'readonly' },
+          })
+        ).status(),
+      ).toBe(200);
+      expect(
+        (
+          await request.post(`/api/v1/agent/sessions/${registration.session.id}/poll`, {
+            headers,
+            data: { consent_revision: 1, ack_event_ids: [] },
+          })
+        ).status(),
+      ).toBe(200);
+    }
+  }
+  await connectClient(request, service.mcp);
+  const headers = await adminHeaders(request, service.password);
   const names = ['待接入的设备', '办公室工作站', '<img src=x onerror="window.compromised=true">'];
   for (const [index, id] of ids.entries()) {
     const response = await request.patch(`/api/v1/admin/sessions/${id}`, {
-      headers: { Origin: origin, 'X-CSRF-Token': csrf_token as string },
+      headers,
       data: { note: names[index], expected_note_revision: 0 },
     });
     expect(response.status()).toBe(200);
@@ -196,4 +205,118 @@ test('浏览器重载恢复 Cookie，身份失效后清除数据', async ({ page
   await page.getByRole('button', { name: '刷新', exact: true }).click();
   await expect(page.getByRole('heading', { name: '登录管理台', exact: true })).toBeVisible();
   await expect(page.getByRole('searchbox')).toHaveCount(0);
+});
+
+test('备注冲突保留草稿，显式采用修订后保存', async ({ page, request, service }, testInfo) => {
+  const registration = await registerSession(request, service.access);
+  const id = registration.session.id as string;
+  const headers = await adminHeaders(request, service.password);
+  await login(page, service.password);
+  await page.getByRole('button', { name: '编辑备注', exact: true }).click();
+  await page.getByLabel('备注草稿').fill('本机保留的草稿');
+  expect(
+    (
+      await request.patch(`/api/v1/admin/sessions/${id}`, {
+        headers,
+        data: { note: '并行修改的备注', expected_note_revision: 0 },
+      })
+    ).status(),
+  ).toBe(200);
+  await page.getByRole('button', { name: '刷新', exact: true }).click();
+  await expect(page.getByRole('form', { name: '编辑备注' })).toContainText('并行修改的备注');
+  await expect(page.getByLabel('备注草稿')).toHaveValue('本机保留的草稿');
+  let writes = 0;
+  page.on('request', (value) => {
+    if (value.method() === 'PATCH') writes++;
+  });
+  await page.getByRole('button', { name: '保存备注', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('草稿已保留');
+  expect(writes).toBe(1);
+  await page.screenshot({ path: testInfo.outputPath('note-conflict.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath('note-mobile.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: '保留草稿并采用当前修订' }).click();
+  expect(writes).toBe(1);
+  await page.getByRole('button', { name: '保存备注', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('备注已保存');
+  expect(writes).toBe(2);
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await expect(page.getByRole('table')).toContainText('本机保留的草稿');
+});
+
+test('确认结束客户端与设备，分别展示状态并清除设备备注', async ({ page, request, service }) => {
+  const registration = await registerSession(request, service.access);
+  const id = registration.session.id as string;
+  expect(
+    (
+      await request.put(`/api/v1/agent/sessions/${id}/decision`, {
+        headers: { Authorization: `Bearer ${registration.agent_token}` },
+        data: { decision: 'accept', mode: 'readonly' },
+      })
+    ).status(),
+  ).toBe(200);
+  await connectClient(request, service.mcp);
+  const headers = await adminHeaders(request, service.password);
+  expect(
+    (
+      await request.patch(`/api/v1/admin/sessions/${id}`, {
+        headers,
+        data: { note: '结束操作验收', expected_note_revision: 0 },
+      })
+    ).status(),
+  ).toBe(200);
+  await login(page, service.password);
+  await expect(page.getByRole('table')).toContainText('结束操作验收');
+  await page.getByRole('button', { name: /^AI 连接/ }).click();
+  await page.getByRole('button', { name: '结束客户端', exact: true }).click();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByRole('button', { name: '结束客户端', exact: true })).toBeFocused();
+  await expect(page.getByRole('table')).toContainText('已就绪');
+  await page.getByRole('button', { name: '结束客户端', exact: true }).click();
+  await page.getByRole('button', { name: '确认结束', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('结束操作已确认');
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(page.getByRole('table')).toContainText('已结束');
+  await expect(page.getByRole('button', { name: '结束客户端', exact: true })).toHaveCount(0);
+
+  await page.getByRole('button', { name: /^设备会话/ }).click();
+  await expect(page.getByRole('table')).toContainText('协助中');
+  await page.getByRole('button', { name: '结束会话', exact: true }).click();
+  await page.getByRole('button', { name: '确认结束', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('结束操作已确认');
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await expect(page.getByRole('table')).toContainText('已结束');
+  await expect(page.getByRole('table')).toContainText('无需回收');
+  await expect(page.getByRole('button', { name: '编辑备注', exact: true })).toHaveCount(0);
+  await expect(page.getByText('结束操作验收', { exact: true })).toHaveCount(0);
+});
+
+test('修改已处理但应答丢失时核对真实快照，不自动重发', async ({ page, request, service }) => {
+  const registration = await registerSession(request, service.access);
+  const id = registration.session.id as string;
+  await login(page, service.password);
+  let writes = 0;
+  await page.route(`**/api/v1/admin/sessions/${id}{,/end}`, async (route) => {
+    writes++;
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    await route.abort();
+  });
+  await page.getByRole('button', { name: '编辑备注', exact: true }).click();
+  await page.getByLabel('备注草稿').fill('已处理但应答丢失');
+  await page.getByRole('button', { name: '保存备注', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('结果未知');
+  await expect(page.getByRole('alert')).toContainText('当前备注与草稿一致');
+  expect(writes).toBe(1);
+  await expect(page.getByRole('button', { name: '保存备注', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('button', { name: '结束会话', exact: true }).click();
+  await page.getByRole('button', { name: '确认结束', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('结果未知');
+  await expect(page.getByRole('alert')).toContainText('最新快照显示目标已结束');
+  await expect(page.getByRole('table')).toContainText('已结束');
+  expect(writes).toBe(2);
+  await expect(page.getByRole('button', { name: '确认结束', exact: true })).toHaveCount(0);
 });
