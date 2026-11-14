@@ -9,16 +9,17 @@ import {
   signOut,
 } from './api';
 import type { AdminChange, CredentialIssue, Snapshot } from './api';
+import type { TextKey } from './i18n';
 
 export interface ChangeResult {
   kind: 'success' | 'conflict' | 'failed' | 'unknown';
-  message: string;
+  message: TextKey;
   issue?: CredentialIssue;
 }
 
 type View =
   | { kind: 'checking' }
-  | { kind: 'signedOut'; pending: boolean; error?: string; notice?: string }
+  | { kind: 'signedOut'; pending: boolean; error?: TextKey; notice?: TextKey }
   | {
       kind: 'signedIn';
       snapshot: Snapshot;
@@ -27,7 +28,7 @@ type View =
       refreshing: boolean;
       mutating: boolean;
       needsCheck: boolean;
-      error?: string;
+      error?: TextKey;
     };
 
 export function useAdmin() {
@@ -39,7 +40,7 @@ export function useAdmin() {
   const writing = useRef<AbortController | null>(null);
   const needsCheck = useRef(false);
 
-  const clear = useCallback((notice?: string, pending = false) => {
+  const clear = useCallback((notice?: TextKey, pending = false) => {
     generation.current++;
     reading.current?.abort();
     reading.current = null;
@@ -132,7 +133,7 @@ export function useAdmin() {
         const issue = credential
           ? await changeCredential(change, current.csrf, current.epoch, controller.signal)
           : await changeResource(change, current.csrf, current.epoch, controller.signal);
-        let message = '结束操作已确认。回收状态以列表为准。';
+        let message: TextKey = '结束操作已确认。回收状态以列表为准。';
         if (credential) {
           message =
             change.kind === 'revokeCredential'
@@ -245,7 +246,7 @@ export function useAdmin() {
     const version = clear(undefined, true);
     const controller = new AbortController();
     authenticating.current = controller;
-    let notice: string | undefined;
+    let notice: TextKey | undefined;
     try {
       await signOut(csrf, controller.signal);
     } catch (error) {

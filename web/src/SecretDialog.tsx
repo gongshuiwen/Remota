@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CredentialIssue } from './api';
+import { LanguageSwitch, useLanguage } from './i18n';
+import type { TextKey } from './i18n';
 import s from './App.module.css';
 
 export default function SecretDialog({
@@ -9,11 +11,12 @@ export default function SecretDialog({
   issue: CredentialIssue;
   onClose: () => void;
 }) {
+  const { t } = useLanguage();
   const dialog = useRef<HTMLDialogElement>(null);
   const active = useRef(false);
   const [revealed, setRevealed] = useState(false);
   const [copying, setCopying] = useState(false);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<TextKey>();
   useEffect(() => {
     active.current = true;
     const element = dialog.current!;
@@ -49,22 +52,26 @@ export default function SecretDialog({
         onClose();
       }}
     >
-      <h2 id="secret-title">一次性秘密</h2>
+      <div className={s.dialogHeading}>
+        <h2 id="secret-title">{t('一次性秘密')}</h2>
+        <LanguageSwitch />
+      </div>
       <p>{issue.credential.name}</p>
       <code className={s.targetId}>{issue.credential.id}</code>
-      <p>请现在保存。关闭、退出或登录失效后无法再次取回。</p>
-      <label htmlFor="issued-secret">凭据秘密</label>
+      <p>{t('请现在保存。关闭、退出或登录失效后无法再次取回。')}</p>
+      <label htmlFor="issued-secret">{t('凭据秘密')}</label>
       <input
         id="issued-secret"
         type={revealed ? 'text' : 'password'}
         value={issue.secret}
+        autoFocus
         readOnly
         autoComplete="off"
         spellCheck={false}
       />
       <div className={s.actionButtons}>
         <button type="button" className={s.secondaryButton} onClick={() => setRevealed(!revealed)}>
-          {revealed ? '隐藏秘密' : '显示秘密'}
+          {revealed ? t('隐藏秘密') : t('显示秘密')}
         </button>
         <button
           type="button"
@@ -72,13 +79,13 @@ export default function SecretDialog({
           disabled={copying}
           onClick={() => void copy()}
         >
-          {copying ? '正在复制…' : '复制秘密'}
+          {copying ? t('正在复制…') : t('复制秘密')}
         </button>
         <button type="button" className={s.primaryButton} onClick={onClose}>
-          我已保存，关闭
+          {t('我已保存，关闭')}
         </button>
       </div>
-      {notice && <p role="status">{notice}</p>}
+      {notice && <p role="status">{t(notice)}</p>}
     </dialog>
   );
 }

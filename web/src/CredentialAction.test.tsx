@@ -5,6 +5,7 @@ import messages from '../../docs/contracts/acceptance/messages.json';
 import type { CredentialIssue, Snapshot } from './api';
 import { App } from './App';
 import SecretDialog from './SecretDialog';
+import { LanguageProvider } from './i18n';
 
 const fixture = messages.valid.find((value) => value.id === 'admin.snapshot.ready')!
   .value as unknown as Snapshot;
@@ -60,7 +61,9 @@ it('严格模式清理原生弹窗时的 close 事件不等于用户关闭秘密
   const close = vi.fn();
   render(
     <StrictMode>
-      <SecretDialog issue={issuedFixture} onClose={close} />
+      <LanguageProvider>
+        <SecretDialog issue={issuedFixture} onClose={close} />
+      </LanguageProvider>
     </StrictMode>,
   );
   await flush();

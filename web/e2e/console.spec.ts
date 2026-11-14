@@ -209,7 +209,7 @@ test('真实登录、只读列表、搜索与 Cookie/CSRF', async ({
   await expect(page.getByRole('heading', { name: 'AI 连接', exact: true })).toBeVisible();
   await expect(page.getByText('验收 AI 客户端', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: /^凭据/ }).click();
-  await expect(page.getByText('设备接入', { exact: true })).toBeVisible();
+  await expect(page.getByRole('table').getByText('设备接入', { exact: true })).toBeVisible();
   await page.getByLabel('凭据状态').selectOption('revoked');
   await expect(page.getByText('没有匹配的记录')).toBeVisible();
   await page.getByRole('button', { name: '清除筛选' }).click();
@@ -537,3 +537,83 @@ for (const action of ['create', 'rotate'] as const) {
     expect(writes).toBe(1);
   });
 }
+
+test('中英文切换保留焦点、指引和一次性秘密，只持久保存语言偏好', async ({
+  page,
+  request,
+  service,
+}, testInfo) => {
+  const registration = await registerSession(request, service.access);
+  await login(page, service.password);
+  const writes: string[] = [];
+  page.on('request', (value) => {
+    if (value.url().includes('/api/v1/admin/') && value.method() !== 'GET')
+      writes.push(value.method());
+  });
+  await page.getByText('接入指引', { exact: true }).click();
+  const guide = page.locator('details');
+  await expect(guide.getByLabel('设备接入命令')).toHaveValue(`remota-agent --server '${origin}'`);
+  expect(JSON.parse((await guide.getByLabel('MCP 配置示例').textContent())!)).toEqual({
+    url: `${origin}/mcp`,
+    headers: { Authorization: 'Bearer MCP_TOKEN' },
+  });
+  expect((await guide.textContent())!.includes(service.mcp)).toBe(false);
+  await page.evaluate(() =>
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('denied')) },
+    }),
+  );
+  const row = page.getByRole('row').filter({ hasText: registration.session.id });
+  await row.getByRole('button', { name: '复制会话 ID' }).click();
+  const fullID = row.getByLabel('完整会话 ID');
+  await expect(fullID).toHaveValue(registration.session.id);
+  await fullID.focus();
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  await expect(row.getByLabel('Full session ID')).toBeFocused();
+  await expect(guide).toHaveAttribute('open', '');
+  await expect(guide.getByLabel('Device connection command')).toHaveValue(
+    `remota-agent --server '${origin}'`,
+  );
+  expect(writes).toHaveLength(0);
+  await page.screenshot({ path: testInfo.outputPath('english-console.png'), fullPage: true });
+
+  await page.getByRole('button', { name: /^Credentials/ }).click();
+  await page.getByRole('button', { name: 'Issue credential', exact: true }).click();
+  const form = page.getByRole('form');
+  const name = form.getByLabel('Credential name');
+  await name.fill('原始名称 / Credential');
+  await page.getByRole('button', { name: '中文', exact: true }).click();
+  await expect(form.getByLabel('凭据名称')).toBeFocused();
+  await expect(form.getByLabel('凭据名称')).toHaveValue('原始名称 / Credential');
+  await form.getByRole('button', { name: '签发凭据', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toHaveAccessibleName('一次性秘密');
+  const input = dialog.locator('#issued-secret');
+  const secret = await input.inputValue();
+  await input.focus();
+  await input.evaluate((element: HTMLInputElement) => element.setSelectionRange(3, 7));
+  await dialog.getByRole('button', { name: 'English', exact: true }).click();
+  await expect(dialog).toHaveAccessibleName('One-time secret');
+  await expect(input).toBeFocused();
+  expect((await input.inputValue()) === secret).toBe(true);
+  expect(
+    await input.evaluate((element: HTMLInputElement) => [
+      element.selectionStart,
+      element.selectionEnd,
+    ]),
+  ).toEqual([3, 7]);
+  await expect(input).toHaveAttribute('type', 'password');
+  expect(writes).toHaveLength(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('english-secret-mobile.png'), fullPage: true });
+  await dialog.getByRole('button', { name: 'Saved, close', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect((await page.content()).includes(secret)).toBe(false);
+  expect(await page.evaluate(() => Object.keys(localStorage))).toEqual(['remota.language']);
+  expect(await page.evaluate(() => sessionStorage.length)).toBe(0);
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('remota.language'))).toBe('en');
+});

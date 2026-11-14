@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import type { CredentialChange, CredentialIssue, Snapshot } from './api';
 import type { ChangeResult } from './useAdmin';
 import SecretDialog from './SecretDialog';
+import { useLanguage } from './i18n';
 import s from './App.module.css';
 
 export type CredentialTarget =
@@ -34,6 +35,7 @@ export default function CredentialAction({
   onClose: () => void;
   onAction: (target: CredentialTarget) => void;
 }) {
+  const { t } = useLanguage();
   const creating = initial.kind === 'createCredential';
   const issuing = initial.kind !== 'revokeCredential';
   const [operation] = useState(() => (issuing ? operationID() : ''));
@@ -64,7 +66,7 @@ export default function CredentialAction({
   const blocked = needsCheck || result?.kind === 'unknown' || result?.kind === 'conflict';
   const checked = blocked && !needsCheck;
   const available = creating || (current && current.status !== 'revoked');
-  const title = creating ? '签发凭据' : issuing ? '轮换凭据' : '撤销凭据';
+  const title = creating ? t('签发凭据') : issuing ? t('轮换凭据') : t('撤销凭据');
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || blocked || !available || succeeded) return;
@@ -113,7 +115,7 @@ export default function CredentialAction({
         {current && (
           <>
             <p>
-              {current.name} · {current.kind === 'access' ? '设备接入' : 'MCP'}
+              {current.name} · {current.kind === 'access' ? t('设备接入') : 'MCP'}
             </p>
             <code className={s.targetId}>{current.id}</code>
           </>
@@ -121,7 +123,7 @@ export default function CredentialAction({
         <fieldset className={s.credentialFields} disabled={pending || succeeded || blocked}>
           {creating && (
             <>
-              <label htmlFor="credential-kind">凭据类型</label>
+              <label htmlFor="credential-kind">{t('凭据类型')}</label>
               <select
                 id="credential-kind"
                 value={kind}
@@ -130,10 +132,10 @@ export default function CredentialAction({
                   setAllowExec(false);
                 }}
               >
-                <option value="access">设备接入</option>
+                <option value="access">{t('设备接入')}</option>
                 <option value="mcp">MCP</option>
               </select>
-              <label htmlFor="credential-name">凭据名称</label>
+              <label htmlFor="credential-name">{t('凭据名称')}</label>
               <input
                 id="credential-name"
                 value={name}
@@ -147,14 +149,14 @@ export default function CredentialAction({
                     checked={allowExec}
                     onChange={(event) => setAllowExec(event.target.checked)}
                   />
-                  允许申请命令执行，仍需设备本机 full 同意
+                  {t('允许申请命令执行，仍需设备本机 full 同意')}
                 </label>
               )}
             </>
           )}
           {issuing && (
             <>
-              <label htmlFor="credential-duration">有效期数量（留空使用服务默认值）</label>
+              <label htmlFor="credential-duration">{t('有效期数量（留空使用服务默认值）')}</label>
               <div className={s.durationFields}>
                 <input
                   id="credential-duration"
@@ -165,13 +167,13 @@ export default function CredentialAction({
                   onChange={(event) => setDuration(event.target.value)}
                 />
                 <select
-                  aria-label="有效期单位"
+                  aria-label={t('有效期单位')}
                   value={unit}
                   onChange={(event) => setUnit(event.target.value)}
                 >
-                  <option value="86400">天</option>
-                  <option value="3600">小时</option>
-                  <option value="1">秒</option>
+                  <option value="86400">{t('天')}</option>
+                  <option value="3600">{t('小时')}</option>
+                  <option value="1">{t('秒')}</option>
                 </select>
               </div>
             </>
@@ -180,56 +182,63 @@ export default function CredentialAction({
         {!creating && (
           <p>
             {issuing
-              ? '轮换会撤销旧凭据，新凭据继承名称、类型和命令申请权限；旧授权不会转移。'
-              : '撤销后不能重新启用。'}
+              ? t('轮换会撤销旧凭据，新凭据继承名称、类型和命令申请权限；旧授权不会转移。')
+              : t('撤销后不能重新启用。')}
             {current?.kind === 'access'
-              ? '关联设备会话将结束。'
-              : '关联 MCP 客户端将结束，并请求停止其任务。'}
-            进程回收另行观察。
+              ? t('关联设备会话将结束。')
+              : t('关联 MCP 客户端将结束，并请求停止其任务。')}
+            {t('进程回收另行观察。')}
           </p>
         )}
         {current && (
           <p>
-            当前关联：{current.effects_count.live_sessions} 个设备会话，
-            {current.effects_count.live_clients} 个客户端，{current.effects_count.unsettled_tasks}{' '}
-            个未结算任务。
+            {t('当前关联：{sessions} 个设备会话，{clients} 个客户端，{tasks} 个未结算任务。', {
+              sessions: current.effects_count.live_sessions,
+              clients: current.effects_count.live_clients,
+              tasks: current.effects_count.unsettled_tasks,
+            })}
           </p>
         )}
-        {!available && !succeeded && <p>源凭据已撤销或不在当前快照中，无法继续本次操作。</p>}
+        {!available && !succeeded && <p>{t('源凭据已撤销或不在当前快照中，无法继续本次操作。')}</p>}
         {(result || needsCheck) && (
           <div className={succeeded ? s.notice : s.error} role={succeeded ? 'status' : 'alert'}>
-            {result?.message ?? '上次操作尚未核对，请先读取最新快照。'}
-            {needsCheck && <p>尚未取得新的有效快照。</p>}
+            {t(result?.message ?? '上次操作结果尚未核对，请先读取最新快照。')}
+            {needsCheck && <p>{t('尚未取得新的有效快照。')}</p>}
             {checked && issuing && (
               <>
                 <p>
-                  关联 ID：<code>{operation}</code>
+                  {t('关联 ID：')}
+                  <code>{operation}</code>
                 </p>
                 {found ? (
-                  <p>
-                    已找到凭据 <code>{found.id}</code>
-                    。秘密无法再次取回；
-                    {found.status === 'revoked'
-                      ? '该记录已撤销，可另建凭据。'
-                      : '请先撤销该记录，再另建凭据。'}
-                  </p>
+                  <>
+                    <p>
+                      {t('已找到凭据：')}
+                      <code>{found.id}</code>
+                    </p>
+                    <p>
+                      {found.status === 'revoked'
+                        ? t('秘密无法再次取回；该记录已撤销，可另建凭据。')
+                        : t('秘密无法再次取回；请先撤销该记录，再另建凭据。')}
+                    </p>
+                  </>
                 ) : (
-                  <p>尚未发现关联记录，结果仍未知。不会以新 ID 自动重新签发。</p>
+                  <p>{t('尚未发现关联记录，结果仍未知。不会以新 ID 自动重新签发。')}</p>
                 )}
               </>
             )}
             {checked && !issuing && (
               <p>
                 {current?.status === 'revoked'
-                  ? '最新快照显示凭据已撤销；停止请求不代表进程已退出。'
-                  : '最新快照尚未显示撤销，请核对后再决定。'}
+                  ? t('最新快照显示凭据已撤销；停止请求不代表进程已退出。')
+                  : t('最新快照尚未显示撤销，请核对后再决定。')}
               </p>
             )}
           </div>
         )}
         <div className={s.actionButtons}>
           <button type="button" className={s.secondaryButton} disabled={busy} onClick={onClose}>
-            {result ? '关闭' : '取消'}
+            {result ? t('关闭') : t('取消')}
           </button>
           {blocked ? (
             <>
@@ -239,7 +248,7 @@ export default function CredentialAction({
                 disabled={busy}
                 onClick={() => void check()}
               >
-                {checking ? '核对中…' : '核对最新快照'}
+                {checking ? t('核对中…') : t('核对最新快照')}
               </button>
               {!needsCheck && found && found.status !== 'revoked' && (
                 <button
@@ -248,7 +257,7 @@ export default function CredentialAction({
                   disabled={busy}
                   onClick={() => onAction({ kind: 'revokeCredential', id: found.id })}
                 >
-                  撤销此凭据
+                  {t('撤销此凭据')}
                 </button>
               )}
               {!issuing && !needsCheck && available && (
@@ -258,7 +267,7 @@ export default function CredentialAction({
                   disabled={busy}
                   onClick={() => setResult(undefined)}
                 >
-                  重新确认撤销
+                  {t('重新确认撤销')}
                 </button>
               )}
             </>
@@ -270,7 +279,13 @@ export default function CredentialAction({
                 className={creating ? s.primaryButton : s.dangerButton}
                 disabled={busy}
               >
-                {pending ? '正在提交…' : creating ? '签发凭据' : issuing ? '确认轮换' : '确认撤销'}
+                {pending
+                  ? t('正在提交…')
+                  : creating
+                    ? t('签发凭据')
+                    : issuing
+                      ? t('确认轮换')
+                      : t('确认撤销')}
               </button>
             )
           )}

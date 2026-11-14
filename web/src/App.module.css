@@ -241,11 +241,13 @@
   min-width: 0;
 }
 .topbar {
-  height: 72px;
-  padding: 0 38px;
+  min-height: 72px;
+  padding: 16px 38px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
   border-bottom: 1px solid #e1e8f0;
   background: white;
   font-size: 12px;
@@ -780,6 +782,98 @@ span.muted {
   margin: 0;
   padding: 10px 16px;
 }
+.loginHeader,
+.dialogHeading,
+.topbar .headerActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.dialogHeading {
+  margin-bottom: 16px;
+}
+.dialogHeading h2 {
+  margin: 0;
+}
+.languageButton {
+  flex-shrink: 0;
+  border: 1px solid #dfe6ef;
+  border-radius: 5px;
+  padding: 6px 10px;
+  background: white;
+  color: #3156d8;
+  font-size: 12px;
+  min-height: 32px;
+}
+.guide {
+  border: 1px solid #dfe6ef;
+  border-radius: 7px;
+  background: white;
+  margin-bottom: 24px;
+  padding: 16px 18px;
+  font-size: 13px;
+}
+.guide summary {
+  color: #3156d8;
+  font-weight: 600;
+  cursor: pointer;
+}
+.guideContent {
+  max-width: 760px;
+  line-height: 1.8;
+}
+.guideContent h2 {
+  font-size: 15px;
+  margin: 20px 0 8px;
+}
+.guideContent label {
+  display: block;
+  margin-bottom: 8px;
+}
+.guideContent textarea,
+.guideContent pre {
+  width: 100%;
+  border: 1px solid #dfe6ef;
+  border-radius: 5px;
+  padding: 12px;
+  background: #f8fafd;
+  color: inherit;
+  font:
+    12px/1.7 'Cascadia Code',
+    Consolas,
+    monospace;
+}
+.guideContent pre {
+  overflow: auto;
+}
+.guide summary:focus-visible,
+.guideContent pre:focus-visible {
+  outline: 3px solid #93adf9;
+  outline-offset: 3px;
+}
+.sessionID {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sessionID .textButton {
+  font-size: 11px;
+}
+.idFallback {
+  flex-basis: 100%;
+  color: #a84747;
+  font-size: 11px;
+}
+.idFallback input {
+  width: 100%;
+  padding: 6px;
+  margin-top: 5px;
+  border: 1px solid #dfe6ef;
+  border-radius: 5px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -851,8 +945,8 @@ span.muted {
     margin-left: 1px;
   }
   .topbar {
-    height: 56px;
-    padding: 0 20px;
+    min-height: 56px;
+    padding: 12px 20px;
   }
   .topbarDivider {
     margin: 0;
