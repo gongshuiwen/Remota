@@ -16,6 +16,7 @@ import (
 	"remota.local/remota/internal/auth"
 	"remota.local/remota/internal/protocol"
 	"remota.local/remota/internal/server/core"
+	webui "remota.local/remota/web"
 )
 
 func (s *Server) Handler() http.Handler { return http.HandlerFunc(s.serveHTTP) }
@@ -209,16 +210,27 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action, id, method := route(r.URL.Path)
-	if action == "" || r.URL.EscapedPath() != r.URL.Path {
+	file := ""
+	if action == "" {
+		file = consoleFile(r.URL.Path)
+		if file != "" {
+			method = "GET"
+		}
+	}
+	if (action == "" && file == "") || r.URL.EscapedPath() != r.URL.Path {
 		s.fail(w, core.NotFound)
 		return
 	}
-	if r.URL.RawQuery != "" || r.URL.ForceQuery {
+	if file == "" && (r.URL.RawQuery != "" || r.URL.ForceQuery) {
 		s.fail(w, core.InvalidArgument)
 		return
 	}
-	if r.Method != method {
-		w.Header().Set("Allow", method)
+	if r.Method != method && !(file != "" && r.Method == "HEAD") {
+		allow := method
+		if file != "" {
+			allow = "GET, HEAD"
+		}
+		w.Header().Set("Allow", allow)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(405)
 		json.MarshalWrite(w, object{"error": object{"code": "INVALID_ARGUMENT", "message": "method not allowed", "trace_id": w.Header().Get("X-Request-ID")}})
@@ -226,6 +238,10 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if method == "GET" && (r.ContentLength > 0 || len(r.TransferEncoding) > 0) {
 		s.fail(w, core.InvalidArgument)
+		return
+	}
+	if file != "" {
+		http.ServeFileFS(w, r, webui.Files, file)
 		return
 	}
 	if action == "health" {

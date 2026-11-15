@@ -1,6 +1,6 @@
 # Remota 第二阶段实施规划
 
-本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.6 管理台进展](#26-管理台进展)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
+本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.7 集成与发布进展](#27-集成与发布进展)，管理台使用与验证见 [2.6](#26-管理台进展)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
@@ -61,13 +61,13 @@ Remota/
 │  │  ├─ core/               # 会话、任务、凭据生效与快照的一致性边界
 │  │  ├─ http.go             # HTTP 路由与管理员 API；agent.go 提供设备通道
 │  │  ├─ mcp.go、mcp_tools.go # SDK 适配、工具映射与传输绑定
-│  │  ├─ store/              # SQLite 事务、状态版本与目录独占
-│  │  └─ webui/              # 静态资源嵌入；dist 为构建产物
+│  │  └─ store/              # SQLite 事务、状态版本与目录独占
 │  └─ agent/                 # Agent 运行上下文与协作循环
 │     ├─ consent/            # 本机决定、降权与交互输入
 │     ├─ transport/          # 出站 HTTP、poll、epoch 与请求代际
 │     └─ executor/           # 进程、管道、回收；平台文件按 OS 隔离
 ├─ web/
+│  ├─ embed.go               # 直接嵌入 dist/index.html 和 dist/assets
 │  ├─ src/
 │  │  ├─ api/                # 管理 API DTO 与 fetch 封装
 │  │  ├─ auth/               # 当前登录代际与敏感状态清除
@@ -80,7 +80,7 @@ Remota/
 │  ├─ integration/           # 真实 HTTP、多端时序、网络故障注入
 │  └─ platform/              # 原生 OS 进程与休眠验证
 ├─ docs/                     # 已有架构、契约、验收与本规划
-├─ tools/                    # 已有契约校验；后续构建/资源导出入口
+├─ tools/                    # 契约校验与 build.mjs 统一构建入口
 ├─ validation/               # 已有独立技术验证：*_test.go、go.mod、go.sum
 ├─ go.mod
 └─ go.sum
@@ -136,7 +136,7 @@ Agent 由本机授权状态、传输循环、独立看门狗和执行器组成�
 
 开发环境通过 Vite 代理连接后端，并让显式 public_url、Host、Origin 保持一致；保留与生产相同的 CSRF 与身份检查。前端自动重试策略不得覆盖修改请求的结果核对规则。
 
-服务端通过根目录的 Go embed 直接嵌入权威 Schema，避免维护另一份副本。后续构建再将管理台静态产物嵌入服务端；两个程序共享协议数据与编解码，不共享服务端状态或执行策略。工具定义由同一契约数据构建，RPC 信封实时生成，tools-list.json 用于一致性检查。
+服务端通过根目录的 Go embed 直接嵌入权威 Schema，避免维护另一份副本；管理台构建产物由 web/embed.go 直接嵌入服务端。两个程序共享协议数据与编解码，不共享服务端状态或执行策略。工具定义由同一契约数据构建，RPC 信封实时生成，tools-list.json 用于一致性检查。
 
 ## 构建目标与验收材料
 
@@ -343,7 +343,7 @@ go test -mod=readonly -run '^TestWindowsMCPAgent$' -count=1 -v -timeout=6m ./tes
 
 ### 开发运行
 
-按 [2.2](#22-启动与管理底座结果)准备已有状态目录后，在 Linux/WSL 的仓库根目录启动后端：
+首次构建服务端前，先按 [2.7](#27-集成与发布进展)生成管理台资源。按 [2.2](#22-启动与管理底座结果)准备已有状态目录后，在 Linux/WSL 的仓库根目录启动后端：
 
 ```text
 go run ./cmd/remota-server serve --state-dir ~/.local/state/remota --listen 127.0.0.1:8080 --public-url http://127.0.0.1:5173
@@ -383,4 +383,53 @@ Windows 的浏览器测试通过 WSL/Linux 运行真实服务端，需要可用�
 | 应答状态与 JSON 媒体类型、修改方法/正文/Schema/资源 ID/epoch、签发类型/关联 ID/轮换来源匹配、编译失败后的目录清理与原始错误保留 | [请求校验](../web/src/api.test.ts)、[启动器异常清理](../web/e2e/server.test.ts) |
 | 真实 HTTP 登录正反例、Cookie/CSRF、三类列表与筛选、纯文本渲染、退出与恢复、修订冲突保留草稿后保存、分别结束客户端与设备、成功处理后丢失修改应答、access/MCP 签发后真实鉴权及轮换和撤销的关联影响、签发与轮换应答丢失后的核对与撤销、秘密关闭及重载清理、语言切换保留焦点与秘密、只读接入指引和会话 ID 复制回退、移动端无页面横向溢出 | [11 个浏览器场景](../web/e2e/console.spec.ts)、[Linux 测试服务](../tests/integration/console_linux_test.go) |
 
-2.6 的管理台交互已接入。构建产物位于 web/dist，服务端静态资源内嵌及真实 HTTPS 浏览器验收留待 2.7 集成；当前仅提供开发入口。Windows 原生服务端存储问题及各平台原生验收缺口继续按前文记录处理。
+2.6 的管理台交互已接入；内嵌资源与统一构建见下节。Windows 原生服务端存储问题及各平台原生验收缺口继续按前文记录处理。
+
+## 2.7 集成与发布进展
+
+第一批已接入[管理台资源嵌入](../web/embed.go)、[静态路由](../internal/server/static.go)及[统一构建入口](../tools/build.mjs)。服务端从内嵌文件系统提供首页与已打包的 assets 文件，支持 GET/HEAD；静态请求沿用 Host 检查和安全响应头，不创建身份或会话。未知路径、缺失资源、目录和越界路径不会回退到首页，业务 API 的鉴权与错误行为保持原样。运行产物不需要源码、前端文件或 Go、Node、Python。
+
+### 构建入口
+
+构建机器需要根 go.mod 对应的 Go 工具链，以及 web/package.json 声明的 Node.js/npm。在仓库根目录运行：
+
+```text
+node tools/build.mjs
+```
+
+入口按 web/package-lock.json 执行 npm ci、类型检查与前端构建，再以 CGO_ENABLED=0、只读 Go 依赖和 trimpath 在同一临时目录构建两个程序；两者编译成功后才替换目标目录，编译失败保留原产物并清理临时目录。产物位于 dist/<GOOS>-<GOARCH>/，Windows 文件带 .exe。构建失败立即返回失败，不用占位页面替代缺失资源；Go 嵌入声明要求 index.html 和 assets 均存在。web/dist 与根 dist 均为忽略的构建产物。
+
+目标默认由 Go 环境决定，可用 GOOS/GOARCH 选择已有目标矩阵。例如 Windows PowerShell 构建 Linux amd64：
+
+```powershell
+$env:GOOS = 'linux'
+$env:GOARCH = 'amd64'
+node tools/build.mjs
+```
+
+在 Linux shell 中可运行 `GOOS=linux GOARCH=amd64 node tools/build.mjs`。交叉编译仍只证明构建成功，平台支持按前文原生验收结果判断。
+
+从干净检出直接构建或测试 Go 服务端前，须先运行 `npm --prefix web ci` 和 `npm --prefix web run build` 生成资源；之后仍使用原有 Go 测试命令。单独构建 Agent 不依赖前端。Vite 开发入口继续保留。
+
+例如在 Linux amd64 使用新状态目录启动内嵌管理台：
+
+```sh
+./dist/linux-amd64/remota-server init --state-dir ~/.local/state/remota
+./dist/linux-amd64/remota-server serve --state-dir ~/.local/state/remota --listen 127.0.0.1:8080 --public-url http://127.0.0.1:8080
+```
+
+浏览器访问 `http://127.0.0.1:8080`。初始化交付与恢复操作继续按 [2.2](#22-启动与管理底座结果)处理，对外 HTTPS 部署边界不变。
+
+### 最小二进制验收
+
+[构建入口用例](../tools/build.test.mjs)以独立临时目录验证第二个程序编译失败时保留原产物、成功后替换两份程序，以及临时目录清理。运行 `node --test tools/build.test.mjs`，不执行真实工具链命令。[静态 HTTP 用例](../internal/server/static_test.go)覆盖 JS/CSS 资源及媒体类型、HEAD、方法限制、Host、请求体、目录与编码越界路径、API 鉴权边界，以及静态请求不修改业务状态。
+
+[二进制启动用例](../tests/integration/binary_linux_test.go)仅使用已构建的同架构 Linux 产物。测试将两个程序复制到新的临时目录，子进程使用空 PATH；检查 Agent 帮助、服务端初始化、健康状态、首页挂载点、引用的 JS/CSS 资源、真实管理员登录及正常停止。初始化秘密只经私有管道进入测试内存，不写入日志。Linux amd64 从仓库根目录运行：
+
+```sh
+REMOTA_BINARY_DIR="$PWD/dist/linux-amd64" go test -mod=readonly -count=1 -run '^TestBinaryStartup$' -timeout=45s ./tests/integration
+```
+
+未配置 REMOTA_BINARY_DIR 时该专项用例跳过，不计为产物验收通过。本批已通过 Windows 构建入口生成 Linux amd64 产物，在 WSL Linux amd64 原生运行二进制启动验收及根模块竞态测试；Windows 原生静态 HTTP 测试、前端检查及静态契约校验通过。临时移除首页时服务端构建按预期失败，Agent 仍可独立构建。
+
+真实 HTTPS 代理联合验收、其余平台缺口、发行打包和 CI 发布门禁按第 2.7 阶段后续批次推进。
