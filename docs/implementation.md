@@ -432,4 +432,26 @@ REMOTA_BINARY_DIR="$PWD/dist/linux-amd64" go test -mod=readonly -count=1 -run '^
 
 未配置 REMOTA_BINARY_DIR 时该专项用例跳过，不计为产物验收通过。本批已通过 Windows 构建入口生成 Linux amd64 产物，在 WSL Linux amd64 原生运行二进制启动验收及根模块竞态测试；Windows 原生静态 HTTP 测试、前端检查及静态契约校验通过。临时移除首页时服务端构建按预期失败，Agent 仍可独立构建。
 
-真实 HTTPS 代理联合验收、其余平台缺口、发行打包和 CI 发布门禁按第 2.7 阶段后续批次推进。
+### HTTPS 产品联合验收
+
+第二批通过[独立 Playwright 入口](../web/playwright.https.config.ts)验收真实产品，不启动 Vite 或测试业务服务。npm 的 pretest:https 钩子先调用统一构建，完成依赖安装和产物构建后才启动 Playwright；globalSetup 只编译控制器并准备路径。测试将服务端和 Agent 复制到独立运行目录；浏览器访问二进制内嵌管理台，Agent 和 MCP 经过同一个 HTTPS 反向代理访问回环 HTTP 服务。代理保留原 Host，配置的 public_url 与浏览器地址一致。
+
+[联合场景](../web/e2e/https.spec.ts)串起浏览器签发凭据、一次终端 full 二次确认、八个 MCP 工具、真实双流输出、取消及跨租约命令。控制器确认命令父子进程已启动后，使用单调时间观察至少 33 秒并核对持续 poll；浏览器撤销 access 凭据后，同时核对任务无详情、Agent 退出、实际父子进程退出及管理台回收投影。最后轮换 MCP 凭据，检查旧身份失效、新身份重新初始化，以及退出后的浏览器清理。本机降权、结束与既有故障矩阵继续由 2.3、2.4、2.5 和 2.6 的测试承接，不在本批重复启动 Agent。
+
+[测试控制器](../tests/integration/https_linux_test.go)只负责 TLS 代理、产品进程、私有管道与终端输入，不增加产品接口或替代业务处理。每次生成独立 CA，仅导入[一次性浏览器 NSS 数据库](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/cert_management.md)，Agent 和 MCP 使用本次 CA；不改系统信任库。浏览器保留 user namespace sandbox，不忽略 HTTPS 错误。反例验证未知 CA、域名不匹配，以及代理下的 Host、Origin 和 CSRF 拒绝；Agent 未信任 CA 时须明确报告证书校验失败并且没有创建会话。Cookie 须保持 Secure、HttpOnly 和 SameSite=Strict。秘密仅经私有管道和测试内存交付，关闭 trace 与失败页面快照；终端不得回显 access 凭据。
+
+本入口需要与构建架构一致的 Linux 环境、Chromium、certutil（Ubuntu 包 libnss3-tools）、伪终端、sh/bash 及可用的 user namespace sandbox。通常以普通用户运行；root 启动时浏览器降为 uid/gid 65534，浏览器文件须对该用户可执行。Windows 使用 WSL 运行 Linux 产品与浏览器，Playwright 驱动仍可在 Windows 运行；REMOTA_E2E_WSL_DISTRO 的含义与前文相同。
+
+先在 web 目录安装锁定的依赖及对应 Linux Chromium，再将 REMOTA_HTTPS_CHROMIUM 指向其可执行文件。Linux 示例：
+
+```sh
+npm ci
+npx playwright install --with-deps chromium --no-shell
+# certutil 需单独安装；此命令使用当前 Playwright 对应的浏览器路径。
+export REMOTA_HTTPS_CHROMIUM="$(node --input-type=module -e "import {chromium} from '@playwright/test'; console.log(chromium.executablePath())")"
+npm run test:https
+```
+
+Windows 可将该变量设为 WSL 中的 Linux 路径或对应的 Windows 路径，再从 web 目录运行同一 npm 命令。未配置浏览器路径或环境不满足时入口失败，不把跳过计为通过。构建失败清理临时目录并保留原始错误；控制器失败返回当前阶段，附带有界、脱敏的诊断。结束时先正常停止产品进程，超时强制回收，再到最终截止仍未退出则报告失败。[控制器故障测试](../web/e2e/https.test.ts)覆盖启动失败、中途退出与强制回收失效。此验收针对 Linux 产品运行链路，其余平台缺口、发行打包和 CI 发布门禁继续留在 2.7 后续批次。
+
+本批已在 Windows 驱动、WSL Linux amd64 产品与 Chromium 158.0.8127.18 的组合下通过完整联合场景，并确认正常清理。前端 77 个测试、既有 11 个 Edge 浏览器场景、类型与格式检查、Linux 根模块竞态测试和静态契约校验通过。本批没有增加产品依赖或改变协议行为。

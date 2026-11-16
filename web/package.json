@@ -12,6 +12,8 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:browser": "playwright test",
+    "pretest:https": "node e2e/build-https.mjs",
+    "test:https": "playwright test --config playwright.https.config.ts",
     "format": "prettier --write src e2e *.ts *.json",
     "format:check": "prettier --check src e2e *.ts *.json"
   },

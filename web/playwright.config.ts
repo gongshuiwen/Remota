@@ -4,6 +4,7 @@ import { origin, target } from './e2e/server';
 export default defineConfig({
   testDir: './e2e',
   testMatch: '*.spec.ts',
+  testIgnore: 'https.spec.ts',
   workers: 1,
   retries: 0,
   timeout: 30_000,

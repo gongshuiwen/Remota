@@ -122,7 +122,7 @@ func newMCPClient(t *testing.T, peer *httpPeer, token string) *mcpClient {
 	t.Helper()
 	m := &mcpClient{peer: peer, token: token}
 	v, h := m.rpc(t, "initialize", object{"protocolVersion": "2025-11-25", "capabilities": object{},
-		"clientInfo": object{"name": "Windows acceptance", "version": "1"}}, "MCPInitializeResponse")
+		"clientInfo": object{"name": "integration acceptance", "version": "1"}}, "MCPInitializeResponse")
 	m.session = h.Get("Mcp-Session-Id")
 	if m.session == "" || v["result"].(object)["protocolVersion"] != "2025-11-25" {
 		t.Fatal("MCP initialization did not negotiate the contract")
@@ -173,7 +173,7 @@ func (m *mcpClient) ok(t *testing.T, name string, args object) object {
 		t.Fatal("MCP tool representations disagree")
 	}
 	models := map[string]string{"list_sessions": "SessionsToolBody", "get_session": "SessionToolBody", "ping_agent": "PingToolBody",
-		"get_agent_info": "InfoToolBody", "request_command": "CommandToolBody", "get_task": "TaskToolBody", "cancel_task": "CancelToolBody"}
+		"get_agent_info": "InfoToolBody", "request_command": "CommandToolBody", "get_task": "TaskToolBody", "list_tasks": "TasksToolBody", "cancel_task": "CancelToolBody"}
 	require(t, m.peer.validator.Validate(models[name], body))
 	if body["ok"] != true {
 		t.Fatalf("%s: %s", name, body["error"].(object)["code"])
