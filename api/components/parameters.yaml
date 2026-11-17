@@ -1,0 +1,38 @@
+# Shared parameters; referenced by ../openapi.yaml.
+sid:
+  name: sid
+  in: path
+  required: true
+  schema:
+    $ref: ../openapi.yaml#/components/schemas/SessionId
+tid:
+  name: tid
+  in: path
+  required: true
+  schema:
+    $ref: ../openapi.yaml#/components/schemas/TaskId
+call_id:
+  name: call_id
+  in: path
+  required: true
+  schema:
+    $ref: ../openapi.yaml#/components/schemas/CallId
+cid:
+  name: cid
+  in: path
+  required: true
+  schema:
+    $ref: ../openapi.yaml#/components/schemas/CredentialId
+mcl_id:
+  name: mcl_id
+  in: path
+  required: true
+  schema:
+    $ref: ../openapi.yaml#/components/schemas/MCPClientId
+Origin:
+  name: Origin
+  in: header
+  required: true
+  description: 与配置的管理 Origin 精确匹配；包括登录在内的所有管理修改均检查。
+  schema:
+    type: string

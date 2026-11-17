@@ -17,7 +17,7 @@ func hideHelper(c *exec.Cmd) {
 }
 func clockName() string { return "QueryInterruptTimePrecise (includes suspend bias)" }
 func elapsedNow() (time.Duration, error) {
-	p := windows.NewLazySystemDLL("kernel32.dll").NewProc("QueryInterruptTimePrecise")
+	p := windows.NewLazySystemDLL("api-ms-win-core-realtime-l1-1-1.dll").NewProc("QueryInterruptTimePrecise")
 	if err := p.Find(); err != nil {
 		return 0, err
 	}

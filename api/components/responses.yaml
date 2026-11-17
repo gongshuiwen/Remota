@@ -1,0 +1,133 @@
+# Shared responses; referenced by ../openapi.yaml.
+HealthReady:
+  description: ready；HTTP 200。
+  headers: &response-headers
+    X-Request-ID:
+      $ref: ../openapi.yaml#/components/headers/X-Request-ID
+    X-Remota-Epoch:
+      $ref: ../openapi.yaml#/components/headers/X-Remota-Epoch
+    Cache-Control:
+      $ref: ../openapi.yaml#/components/headers/Cache-Control
+    X-Content-Type-Options:
+      $ref: ../openapi.yaml#/components/headers/X-Content-Type-Options
+    Referrer-Policy:
+      $ref: ../openapi.yaml#/components/headers/Referrer-Policy
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/HealthResponse
+HealthUnavailable:
+  description: degraded 或 shutting_down；HTTP 503，正文仍为 HealthResponse。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/HealthResponse
+BadRequest:
+  description: JSON、参数或未知字段无效。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+Unauthenticated:
+  description: 身份无效或用途不符。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+Forbidden:
+  description: Host、Origin、CSRF 或本机权限不满足。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+NotFound:
+  description: 资源不存在。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+MethodNotAllowed:
+  description: 已知路由不支持本次方法；Allow 列出允许方法。
+  headers:
+    X-Request-ID:
+      $ref: ../openapi.yaml#/components/headers/X-Request-ID
+    X-Remota-Epoch:
+      $ref: ../openapi.yaml#/components/headers/X-Remota-Epoch
+    Cache-Control:
+      $ref: ../openapi.yaml#/components/headers/Cache-Control
+    X-Content-Type-Options:
+      $ref: ../openapi.yaml#/components/headers/X-Content-Type-Options
+    Referrer-Policy:
+      $ref: ../openapi.yaml#/components/headers/Referrer-Policy
+    Allow:
+      $ref: ../openapi.yaml#/components/headers/Allow
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+Conflict:
+  description: 资源状态、修订或重复操作冲突。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+Gone:
+  description: 会话、调用或开始许可已经结束。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+PayloadTooLarge:
+  description: 请求正文超过容量边界。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+UnsupportedMediaType:
+  description: 请求媒体类型、字符集或编码不支持。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+TooManyRequests:
+  description: 达到速率或资源配额；遵守 Retry-After。
+  headers:
+    X-Request-ID:
+      $ref: ../openapi.yaml#/components/headers/X-Request-ID
+    X-Remota-Epoch:
+      $ref: ../openapi.yaml#/components/headers/X-Remota-Epoch
+    Cache-Control:
+      $ref: ../openapi.yaml#/components/headers/Cache-Control
+    X-Content-Type-Options:
+      $ref: ../openapi.yaml#/components/headers/X-Content-Type-Options
+    Referrer-Policy:
+      $ref: ../openapi.yaml#/components/headers/Referrer-Policy
+    Retry-After:
+      $ref: ../openapi.yaml#/components/headers/Retry-After
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+InternalError:
+  description: 内部错误，修改结果可能未知。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error
+Unavailable:
+  description: 容量、持久状态或服务状态暂不可用。
+  headers: *response-headers
+  content:
+    application/json:
+      schema:
+        $ref: ../openapi.yaml#/components/schemas/Error

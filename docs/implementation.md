@@ -1,6 +1,6 @@
 # Remota 第二阶段实施规划
 
-日期 2026年11月9日。本文维护推荐技术组合、验证基线与分步门槛；当前验证状态集中在 [2.0 技术验证结果](#20-技术验证结果)。产品工程尚未初始化。
+本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.7 集成与发布进展](#27-集成与发布进展)，交付后的操作见[运行说明](operations.md)，管理台使用与验证见 [2.6](#26-管理台进展)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
@@ -40,32 +40,34 @@
 
 Go 1.27 已发布新的严格 JSON API；React 官方也提供基于 Vite 的独立应用路径。这里的静态管理台适合该组合，Node 只承担构建和测试。依据见 [Go 1.27](https://go.dev/doc/go1.27)、[React 独立应用](https://react.dev/learn/build-a-react-app-from-scratch)与 [Vite 构建](https://vite.dev/guide/)。
 
-验证版本固定在 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)，已验证范围见[技术验证结果](#20-技术验证结果)。产品工程建立时沿用该基线，新增或升级依赖重新验证。前端版本及 package-lock.json 在 2.6 验证后建立。MCP 协议版本继续固定为契约中的 2025-11-25。
+产品依赖固定在根 [go.mod](../go.mod) 与 [go.sum](../go.sum)，基础探针保留独立的 [validation/go.mod](../validation/go.mod) 与 [go.sum](../validation/go.sum)。2.2 沿用已验证的 SQLite、Schema 和系统接口版本，并使用 golang.org/x/net v0.62.0 的 [IDNA Lookup](https://pkg.go.dev/golang.org/x/net@v0.62.0/idna)规范化域名；该版本不受 [GO-2026-5026](https://pkg.go.dev/vuln/GO-2026-5026)影响，同时将间接依赖 x/text 更新至 v0.43.0。2.3 使用已验证的 golang.org/x/term v0.47.0 处理终端输入，2.4 接入已验证的官方 MCP SDK v1.8.0。新增或升级依赖后重新验证。前端版本现由 [package.json](../web/package.json) 和 [package-lock.json](../web/package-lock.json) 固定，验证结果见 [2.6](#26-管理台进展)；MCP 协议版本继续固定为契约中的 2025-11-25。
 
 ## 建议项目结构
 
-以下为产品目标目录，随相应步骤逐步建立；validation 已存在，其独立 Go module 只用于 2.0 验证，产品仍采用根目录单一 module。
+以下为产品目标目录，随相应步骤逐步建立；当前已建立服务端入口、Agent、认证、时钟、协议校验、控制核心、存储和 MCP 适配。validation 的独立 Go module 只用于技术探针，产品采用根目录单一 module。
 
 ```text
 Remota/
+├─ api/                     # OpenAPI 权威入口、分通道路径、共享组件与生成测试索引
 ├─ cmd/
 │  ├─ remota-server/          # 服务端入口，组装配置、存储、核心及通道
 │  └─ remota-agent/           # Agent 入口与退出协调
+├─ schemas.go                 # 直接嵌入权威 Schema
 ├─ internal/
+│  ├─ auth/                  # 秘密生成与摘要
 │  ├─ protocol/              # 传输 DTO、严格 codec、Schema 访问
-│  │  └─ schema/             # 构建导出的 Schema 资源
 │  ├─ clock/                 # 真实/平台经过时间；测试时注入时钟
 │  ├─ server/                # 启动、初始化、恢复和服务生命周期
 │  │  ├─ core/               # 会话、任务、凭据生效与快照的一致性边界
-│  │  ├─ httpapi/            # 设备及管理 API，分别组织处理文件
-│  │  ├─ mcp/                # SDK 适配、工具映射与传输绑定
-│  │  ├─ store/              # SQLite 事务、状态版本与目录独占
-│  │  └─ webui/              # 静态资源嵌入；dist 为构建产物
+│  │  ├─ http.go             # HTTP 路由与管理员 API；agent.go 提供设备通道
+│  │  ├─ mcp.go、mcp_tools.go # SDK 适配、工具映射与传输绑定
+│  │  └─ store/              # SQLite 事务、状态版本与目录独占
 │  └─ agent/                 # Agent 运行上下文与协作循环
 │     ├─ consent/            # 本机决定、降权与交互输入
 │     ├─ transport/          # 出站 HTTP、poll、epoch 与请求代际
 │     └─ executor/           # 进程、管道、回收；平台文件按 OS 隔离
 ├─ web/
+│  ├─ embed.go               # 直接嵌入 dist/index.html 和 dist/assets
 │  ├─ src/
 │  │  ├─ api/                # 管理 API DTO 与 fetch 封装
 │  │  ├─ auth/               # 当前登录代际与敏感状态清除
@@ -78,7 +80,7 @@ Remota/
 │  ├─ integration/           # 真实 HTTP、多端时序、网络故障注入
 │  └─ platform/              # 原生 OS 进程与休眠验证
 ├─ docs/                     # 已有架构、契约、验收与本规划
-├─ tools/                    # 已有契约校验；后续构建/资源导出入口
+├─ tools/                    # 契约校验与 build.mjs 统一构建入口
 ├─ validation/               # 已有独立技术验证：*_test.go、go.mod、go.sum
 ├─ go.mod
 └─ go.sum
@@ -118,7 +120,7 @@ Agent 由本机授权状态、传输循环、独立看门狗和执行器组成�
 
 时钟接口区分 UTC 展示时间与覆盖休眠的经过时间。Go 文档明确指出部分系统的单调时钟在休眠时可能停止，因此不能直接把 time.Since 当作完整租约时钟；平台候选及验证状态见 [2.0 结果](#20-技术验证结果)。timer 只用于唤醒，恢复后重新检查权限。依据见 [Go 时钟说明](https://go.dev/src/time/time.go)与[系统时钟语义](https://man7.org/linux/man-pages/man3/clock_gettime.3.html)。
 
-执行器通过平台文件隔离 Windows Job 与 Linux/macOS 进程组。os/exec 负责启动和管道，但 CommandContext 的默认取消只针对命令进程，完整回收由执行器承担。以[平台执行器约定](contracts/tasks.md#平台执行器约定)为验收边界，参见 [os/exec 取消行为](https://pkg.go.dev/os/exec#CommandContext)。
+执行器通过平台文件隔离 Windows Job 与 Linux/macOS 进程组：Windows 在创建时将进程加入 Job，POSIX 使用 os/exec 建立进程组；两者均自行处理管道和完整回收。以[平台执行器约定](contracts/tasks.md#平台执行器约定)为验收边界，参见 [os/exec 取消行为](https://pkg.go.dev/os/exec#CommandContext)。
 
 ### MCP SDK 的使用范围
 
@@ -126,7 +128,7 @@ Agent 由本机授权状态、传输循环、独立看门狗和执行器组成�
 
 工具输入输出使用契约 Schema，采用 Server.AddTool/ToolHandler 显式校验并构造结果。Remota 管理自己的身份绑定、初始化期限、空闲期限与结束流程；SDK 传输会话和 mcl 投影对应，但不是第二个授权来源。
 
-2.4 将已验证的 SDK 适配接入真实核心，并补齐初始化/空闲期限、管理结束及已受理任务不受 RPC 取消影响的验收。SDK 默认的额外方法或能力由适配层收口，不修改契约或把业务状态迁入 SDK。
+2.4 已将 SDK 适配接入真实核心，覆盖初始化/空闲期限、管理结束及已受理任务不受 RPC 取消影响的验收。SDK 默认的额外方法或能力由适配层收口，不修改契约或把业务状态迁入 SDK。
 
 ### 管理台与资源构建
 
@@ -134,7 +136,7 @@ Agent 由本机授权状态、传输循环、独立看门狗和执行器组成�
 
 开发环境通过 Vite 代理连接后端，并让显式 public_url、Host、Origin 保持一致；保留与生产相同的 CSRF 与身份检查。前端自动重试策略不得覆盖修改请求的结果核对规则。
 
-构建时把权威 Schema 导出为嵌入资源，把管理台静态产物复制到服务端资源目录，再由 Go embed 编译进程序。生成副本只作构建产物，校验与源一致；两个程序共享协议数据与编解码，不共享服务端状态或执行策略。工具定义由同一契约数据构建，RPC 信封实时生成，tools-list.json 用于一致性检查。
+服务端通过根目录的 Go embed 直接嵌入权威 Schema，避免维护另一份副本；管理台构建产物由 web/embed.go 直接嵌入服务端。两个程序共享协议数据与编解码，不共享服务端状态或执行策略。工具定义由同一契约数据构建，RPC 信封实时生成，tools-list.json 用于一致性检查。
 
 ## 构建目标与验收材料
 
@@ -146,7 +148,7 @@ Agent 的目标矩阵为 Windows、Linux、macOS 的 amd64/arm64；服务端首�
 
 ## 2.0 技术验证结果
 
-验证代码全部位于 validation，例如[消息验证](../validation/schema_test.go)，仅含测试、回环 HTTP 适配和固定角色的受控子进程，不包含产品入口、授权状态机或远程命令执行。直接读取现有 Schema、消息样例与工具定义，不执行样例中的命令正文；SQLite 仅操作测试临时目录中的通用表。
+2.0 验证代码位于 validation，例如[消息验证](../validation/schema_test.go)，仅含测试、回环 HTTP 适配和固定角色的受控子进程，不包含产品入口、授权状态机或远程命令执行。直接读取现有 Schema 与消息样例，不执行样例中的命令正文；SQLite 仅操作测试临时目录中的通用表。下表保留当时的验证结果；完整 MCP 契约回归现由[产品通道测试](../internal/server/mcp_test.go)承接，独立模块保留 [SDK 取消上下文探针](../validation/mcp_test.go)。
 
 ### 锁定基线
 
@@ -176,7 +178,7 @@ Go 1.27.3 采用已发布的受支持补丁，见 [Go 发布记录](https://go.d
 | 进程边界 | 同组父子进程均被组信号回收；父进程被强杀后子进程仍存活，验证了 POSIX 进程组不提供崩溃自动清理保证；测试随后显式回收 |
 | 终端检测 | x/term 正确识别非终端输入；交互确认流程留待 2.3 |
 
-SDK v1.8.0 的默认输出会省略 listChanged=false、isError=false，Tool 类型也没有 execution 字段。测试适配只补齐这些契约字段后，再对实际 SDK 应答逐字段核对；没有替换整份发现应答。2.4 必须保留此适配，并显式限制方法、HTTP 表面、错误格式和身份绑定，不能直接暴露默认 handler。
+SDK v1.8.0 的默认输出会省略 listChanged=false、isError=false，Tool 类型也没有 execution 字段。2.0 测试适配只补齐这些契约字段后，再对实际 SDK 应答逐字段核对；没有替换整份发现应答。2.4 产品适配继续补齐这些字段，并显式限制方法、HTTP 表面、错误格式和身份绑定。
 
 Windows 的时钟探针绑定 QueryInterruptTimePrecise，包含休眠补偿；macOS 绑定 CLOCK_MONOTONIC_RAW，底层采用连续时间。选择依据见 [Windows 中断时间](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-kequeryinterrupttime)及 [Apple 时钟实现](https://github.com/apple-oss-distributions/Libc/blob/main/gen/clock_gettime.c)。Windows Job 探针覆盖先挂起创建、加入 Job 后继续、关闭 Job 及持有者崩溃回收。执行状态统一见下表。
 
@@ -184,11 +186,11 @@ Windows 的时钟探针绑定 QueryInterruptTimePrecise，包含休眠补偿；m
 |---|---|---|
 | Linux amd64 | 通过 | WSL Linux 内实际运行，全部通过；不代表物理机休眠或全部 Linux 发行环境 |
 | Linux arm64 | 通过 | 无对应设备，未运行 |
-| Windows amd64 | 通过 | 应用控制策略阻止执行测试程序，未通过运行验证 |
+| Windows amd64 | 通过 | 已运行 Job 进程树、持有者崩溃和普通时钟推进探针；完整独立验证套件尚未重跑 |
 | Windows arm64 | 通过 | 无对应设备，未运行 |
 | macOS amd64 / arm64 | 均通过 | 无原生 runner，未运行 |
 | 真实休眠 | 不适用 | 未执行；仅清醒状态的默认及 1 秒时钟窗口通过 |
-| Go 竞态检测 | 不适用 | 未执行；当前环境缺少 C 编译器 |
+| Go 竞态检测 | 不适用 | 2.0 独立探针未运行竞态；2.1 核心的竞态结果见[下节](#21-控制核心结果) |
 
 ### 复跑入口与收口条件
 
@@ -207,3 +209,263 @@ go test -mod=readonly -count=1 -timeout=90s ./...
 真实休眠单项入口为 go test -mod=readonly -run '^TestPlatformElapsedClock$' -count=1 -v -timeout=5m -args -clock-window=2m。操作者在观察窗口内使测试设备休眠并恢复，期间保持 UTC 时钟稳定，保存 OS 休眠/恢复记录；探针对比平台经过时间与 UTC 跨度，允许 2 秒观测误差。没有实际休眠记录的通过只证明普通推进，探针不会自动挂起设备。
 
 竞态入口为 go test -race -mod=readonly -count=1 -timeout=90s ./...，要求当前进程设置 CGO_ENABLED=1 并提供可用 C 编译器。阶段门槛统一见[实现顺序](#实现顺序与通过条件)。这些探针只证明基础能力，不能代替完整 B01、B06–B08 的产品验收。
+
+## 2.1 控制核心结果
+
+2.1 已完成。根模块的 [core](../internal/server/core/core.go)采用单个互斥锁、内存状态和[可注入时钟](../internal/clock/clock.go)。每个核心入口用同一时间样本先处理到期条件，再检查权限和状态；等待通过 BeginPoll/CompletePoll/AbortPoll 留在锁外，核心不创建后台循环或执行进程。
+
+| 验收目标 | 已验证的核心范围 | 测试入口 |
+|---|---|---|
+| D01/D02、G01、R01、V01 与 B02–B04 | 意图幂等与冲突、唯一许可及重复预算不变、撤权先于开始、结果裁决、回执重复和乱序；读取现有消息样例作状态断言 | [核心流程](../internal/server/core/core_test.go) |
+| B05、近到期注册、B06 的服务端计时部分 | 等于截止失效、同轮按绝对截止及优先级裁决、首次原因固定、回拨/提前/模拟休眠、poll 返回前复查、结束保留和缓存脱敏 | [期限与并发](../internal/server/core/deadlines_test.go) |
+| 状态与权限边界 | 决定和激活窗口、MCP 初始化/空闲期限、只读 MCP 权限、任务累计配额不淘汰幂等记录、UTF-8 字节及结果组合 | [边界检查](../internal/server/core/limits_test.go) |
+| 一致性 | 并发提交同一意图、撤权与 start、取消与结果、快照读取及返回值隔离；Linux amd64 竞态检测通过 | [并发检查](../internal/server/core/deadlines_test.go) |
+
+本次使用 Go 1.27.3，在 WSL Linux amd64 中以 GCC 和 CGO_ENABLED=1 原生运行根模块测试，竞态检测通过；go vet 与 go mod verify 通过，静态契约校验通过。平台支持状态仍以上述 2.0 矩阵和后续原生执行验收为准。
+
+在具备 C 编译器的测试环境，从仓库根目录执行；工具链使用 Go 1.27.3，宿主不同则设置 GOTOOLCHAIN=go1.27.3，竞态运行设置 CGO_ENABLED=1：
+
+```text
+go mod verify
+go vet ./...
+go test -race -count=1 -timeout=90s ./...
+```
+
+根模块的 ./... 不包含独立 validation 模块，其[复跑入口](#复跑入口与收口条件)保留。核心类型是进程内模型，不能直接当作 HTTP/MCP DTO；只读 Agent 授权与租约发送锚点已在 2.3 接入，MCP 传输见 [2.4](#24-mcp-与任务闭环结果)，设备侧命令开始许可锚点及进程回收见 [2.5](#25-真实平台执行进展)。核心测试的执行事实由受控输入提供，不证明实际 spawn 或 OS 回收。
+
+## 2.2 启动与管理底座结果
+
+服务端入口为 [remota-server](../cmd/remota-server/main.go)。初始化只接受新空目录，一次性交付管理员口令、access 和 MCP 秘密；SQLite 只保存口令与凭据摘要及管理元数据。普通启动要求已有完整状态和目录独占锁，不将缺失、损坏或未知版本当作新部署。管理修改先在核心收紧权限，在锁外完成持久提交，失败或结果未知进入 degraded；本机恢复检查实际状态并收紧未确定的凭据。
+
+管理员登录、Cookie/CSRF、凭据签发/轮换/撤销、快照、备注及结束操作已接入现有 HTTP 契约和 Schema。设备和 MCP 的秘密鉴权已接入核心；设备通道的只读部分已在 2.3 接入，MCP 通道已在 2.4 接入，管理台待 2.6 实现。
+
+| 验证范围 | 入口 |
+|---|---|
+| 管理 API、Schema、身份隔离、一次性交付、慢提交、写失败和结果未知 | [HTTP 测试](../internal/server/http_test.go) |
+| SQLite 事务、缺失/损坏状态、真实写满、进程中断与恢复标记 | [存储测试](../internal/server/store/store_test.go) |
+| 一次性交接失败、本机恢复及真实服务进程重启 | [入口测试](../cmd/remota-server/main_test.go)、[进程测试](../cmd/remota-server/main_process_test.go) |
+| 严格 JSON 和共用契约样例 | [协议测试](../internal/protocol/schema_test.go) |
+
+初始化、HTTPS 部署、秘密交付与离线恢复统一见[运行说明](operations.md)。源码调试时，在生成内嵌资源后，可将说明中的 `./remota-server` 替换为 `go run ./cmd/remota-server`；参数和故障处理规则相同。
+
+本阶段在 WSL Linux amd64 的 Linux 文件系统上运行服务进程和存储测试。Windows 原生测试中服务端存储初始化失败；当前目录同步使用只读句柄，而 [FlushFileBuffers 要求 GENERIC_WRITE](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)，仍需单独定位和修复，目前请使用 WSL/Linux。macOS 原生目录同步和持久性尚未验证，交叉编译不等于平台通过。真实系统休眠和浏览器端到端验收仍在后续阶段；MCP 的验证范围见 [2.4](#24-mcp-与任务闭环结果)。
+
+在有 C 编译器的 Linux 测试环境从仓库根目录运行，竞态检测设置 `CGO_ENABLED=1`：
+
+```text
+go mod verify
+go vet ./...
+go test -race -count=1 -timeout=120s ./...
+```
+
+## 2.3 只读 Agent 结果
+
+已接入 [只读 Agent](../internal/agent/agent.go) 和[设备 HTTP 通道](../internal/server/agent.go)：注册、读取会话、决定、降权、长轮询、结束及固定诊断结果。设备凭据只绑定当前会话，并在结束保留期后失效；poll 在锁外等待，诊断和结束事件可唤醒等待。固定 ping/info 由核心关联调用身份与授权，结果重传不重复探测。命令相关设备端点和 MCP 传输见 [2.4](#24-mcp-与任务闭环结果)。
+
+服务端启动后，在设备的交互终端运行：
+
+```text
+go run ./cmd/remota-agent --server http://127.0.0.1:8080
+```
+
+本机确认、full 二次确认、降权和结束操作统一见[Agent 接入说明](operations.md#agent-与-mcp)。
+
+| 验证范围 | 入口 |
+|---|---|
+| 本机确认、首个租约、ping/info、结果应答丢失后重传、本机结束 | [只读链路测试](../internal/agent/integration_test.go) |
+| 阻塞 poll、租约到期、迟到响应、模拟休眠与时钟异常 | [链路测试](../internal/agent/integration_test.go)、[状态测试](../internal/agent/state_test.go) |
+| 会话身份、重复 poll、固定诊断、结果幂等与降权 | [设备通道测试](../internal/server/agent_test.go) |
+| 真实伪终端确认及凭据不回显、拒绝非交互输入 | [终端测试](../cmd/remota-agent/terminal_linux_test.go)、[入口测试](../cmd/remota-agent/main_test.go) |
+
+在 WSL Linux amd64 运行根模块竞态测试、终端测试及真实回环 HTTP；2.4 补充了实际只读 Agent 与 MCP 的 ping 链路。L02/B06 中的断联、迟到响应和经过时间异常已覆盖，真实系统休眠尚未验证。Windows 的普通时钟推进已原生验证，本机 full 确认与凭据不回显由下节的 Windows 端到端测试覆盖；macOS 的 Agent 终端及时钟尚未做原生运行验证。交叉编译不代表平台验收通过。复跑命令见[服务端验证入口](#22-启动与管理底座结果)，独立契约校验见[最小校验入口](contracts/acceptance/README.md#最小校验入口)。
+
+## 2.4 MCP 与任务闭环结果
+
+服务端在 `/mcp` 接入官方 SDK 的 Streamable HTTP 及八个工具，按契约单独校验 Bearer、传输绑定、版本、生命周期、消息和工具参数；工具 Schema 从嵌入的权威消息目录生成。设备通道接入任务开始许可、回执和结果接口，任务受理、去重、停止、裁决与脱敏仍由控制核心统一负责。
+
+| 验证范围 | 入口 |
+|---|---|
+| 握手、工具发现与 Schema 一致性、B01 错误分层、身份绑定、到期、撤销和缓存头 | [MCP 测试](../internal/server/mcp_test.go) |
+| 受控设备通过 HTTP 报告许可、启动、退出与结果；重复许可、意图重试、取消和结束后脱敏 | [MCP 任务测试](../internal/server/mcp_test.go) |
+| MCP 固定诊断、等待取消或超时、断连时并发限制、客户端结束期间的等待清理 | [MCP 测试](../internal/server/mcp_test.go)、[SDK 取消探针](../validation/mcp_test.go) |
+| 真实只读 Agent 通过回环 HTTP 响应 MCP ping | [Agent 联合测试](../internal/agent/integration_test.go) |
+
+本阶段的受控设备替身只提交预设执行事实，不创建进程；不能将其测试视为真实平台执行验收。测试与静态检查的复跑入口见[服务端验证入口](#22-启动与管理底座结果)和[最小校验入口](contracts/acceptance/README.md#最小校验入口)。
+
+## 2.5 真实平台执行进展
+
+Agent 已接入本机 full 二次确认、一次性开始许可、真实命令执行、独立有限输出及停止后的进程回收。Windows 创建命令进程时以 Job 属性建立管理边界；Linux/macOS 使用独立进程组。无法确认边界和管道均已回收时报告 `stop_unconfirmed`。降权、结束和断连会停止本机输出采集并触发回收；详情仍以[设备通道](contracts/agent.md)和[任务语义](contracts/tasks.md)为准。
+
+| 验证范围 | 入口 |
+|---|---|
+| 真实服务与 Agent：成功执行、丢失开始许可或结果应答、许可到达前取消和窗口到期、取消与超时、断连和降权；模拟时钟推进跨过首个租约并续租 | [联合测试](../internal/agent/tasks_integration_posix_test.go) |
+| 有限输出、无效 UTF-8、环境隔离、stdin、shell 退出与后台进程、停止回收 | [POSIX 执行器测试](../internal/agent/executor_posix_test.go)、[Windows 执行器测试](../internal/agent/executor_windows_test.go) |
+| MCP 客户端结束或凭据失效后只发无输出回执；保留首次停止原因，后续身份失效仍丢弃输出并取消结果重试 | [联合测试](../internal/agent/tasks_integration_posix_test.go)、[任务测试](../internal/agent/tasks_test.go) |
+| 首次发送锚点、许可核对、经过时间截止、任务事件去重与冲突、回执及结果重试遵守 Retry-After | [任务测试](../internal/agent/tasks_test.go) |
+| full 二次确认未通过时不授权、凭据不回显，以及决定应答未返回时的本机降权 | [终端测试](../cmd/remota-agent/terminal_linux_test.go)、[授权竞态测试](../internal/agent/consent_integration_test.go) |
+| Windows 产品 CLI 经 ConPTY 完成本机 full 二次确认；真实 MCP 命令链路、意图重试只执行一次、许可与结果应答丢失、双流输出上限、取消与超时、MCP 身份失效、本机降权与结束、poll 失败及长命令续租；用原生进程句柄核对父子进程退出。工具发现、协议错误及元数据规则由 2.4 测试承接 | [Windows 端到端验收](../tests/integration/agent_windows_test.go) |
+
+本次已在 WSL Linux amd64 运行真实进程、HTTP 联合测试及 Go 竞态测试；Windows amd64 原生运行了 Agent 输出和进程树取消测试、Job 持有者崩溃探针及普通时钟推进检查，并通过 Linux 服务端、真实 MCP 与 Windows 原生 full Agent 的 10 个端到端场景。长命令实际运行 33 秒，验证持续 poll 续租可跨过首个 30 秒租约；没有以模拟时钟替代该观察。Windows 原生服务端存储初始化问题仍在，macOS 与其他架构没有原生 runner。其余五组目标的 Agent 和测试已交叉编译；真实休眠和完整验收清单尚未验证，因此 2.5 的平台验收门槛尚未全部通过。交叉编译不代表进程回收或休眠行为已在对应平台验证。
+
+Windows 端到端验收从仓库根目录的 PowerShell 运行，需要 Go 1.27.3、支持 ConPTY 的 Windows、可用的 WSL/Linux，以及 Windows 到 WSL 服务的 localhost 转发。`REMOTA_E2E_WSL_DISTRO` 可选指定已安装的发行版，未设置时使用默认发行版：
+
+```powershell
+$env:REMOTA_WINDOWS_E2E = '1'
+go test -mod=readonly -run '^TestWindowsMCPAgent$' -count=1 -v -timeout=6m ./tests/integration
+```
+
+测试自动构建 Windows 产品 Agent 与 Linux 测试服务，在 WSL 临时目录初始化独立 SQLite；全部业务操作经过真实 MCP 或管理 HTTP，秘密通过测试子进程的私有管道和本机终端交付。故障注入与请求计数只位于测试服务，应答丢失须核实原处理成功；每个场景按新增会话 ID 定位，清理先正常结束再强制回收。长命令按 500 毫秒间隔查询，保留真实的跨租约观察。进程和临时状态在结束后清理；未显式启用时跳过该环境专项测试，不将跳过计为平台验收通过。
+
+## 2.6 管理台进展
+
+第一批已接入登录、退出、登录恢复及设备会话、MCP 客户端和凭据的只读快照；入口为 [App.tsx](../web/src/App.tsx)。本机授权与进程事实仍只通过现有 API 的投影展示。搜索和凭据状态筛选在当前页面内执行，统计始终来自完整快照。可见页面每 5 秒刷新，同一时刻最多一个请求；隐藏时暂停，失败保留并标出旧数据。设备会话的 5 分钟提醒、凭据的 7 天提醒及到期估算沿用现有交互规则。
+
+第二批已接入备注编辑、结束设备会话和 MCP 客户端；共用[就地操作区](../web/src/ResourceAction.tsx)，结束前明确确认。备注草稿与基准修订独立于刷新保存，冲突后展示当前备注并由操作者显式采用当前修订，交互规则见[管理台规范](product/console.md#快照与列表)。修改串行发送，期间取消旧读取并暂缓轮询，完成后重新读取完整快照；明确的参数或来源拒绝直接提示，不追加刷新。应答丢失保留结果未知，不自动重发，核对失败时继续阻止修改直至取得有效快照，核对状态由会话 Hook 统一维护。注销、身份变化与页面销毁均中止本页修改请求并丢弃迟到应答；结束确认与回收状态分别展示。
+
+第三批已接入 access/MCP 凭据签发、轮换和撤销；[凭据操作区](../web/src/CredentialAction.tsx)沿用同一修改与核对流程，轮换和撤销前展示关联影响并明确确认。签发表单为本次操作生成固定关联 ID，应答丢失或操作已存在时按快照核对，不自动重发或换 ID；找到秘密不可得的记录后，引导操作者另行确认撤销，再新建凭据。权限、有效期和关联规则仍以[管理员契约](contracts/admin.md)为准。[一次性秘密弹窗](../web/src/SecretDialog.tsx)默认掩码，支持显式显示、复制及复制失败后的手动选择；秘密仅存于当前弹窗状态，关闭、退出、到期和身份失效均清除。迟到签发应答与剪贴板回调不能影响后续登录；未运行到期计时器时也拒绝交付越过登录期限的秘密。本批未增加依赖。
+
+第四批已接入[类型化中英文字典与语言 Context](../web/src/i18n.tsx)。语言状态位于登录界面之外，切换不重建表单、操作区或原生弹窗，也不参与认证请求生命周期；操作提示保存消息键，展示时按当前语言翻译。日期使用 Intl 格式化，远端文本保持原样；仅 remota.language 偏好按需写入浏览器存储，存储不可用时仍可在内存切换。[接入指引](../web/src/ConnectionGuide.tsx)只接收公开地址与传输模式，不接收凭据秘密；地址不可用时提示配置，Agent 示例省略 token，MCP 使用 MCP_TOKEN 占位符。设备列表支持复制完整会话 ID，失败时提供只读、可选择的完整文本。本批未增加依赖。
+
+浏览器验收关闭 trace 和自动失败页面快照，避免把秘密输入值写入测试产物；人工截图只在秘密掩码状态保存。复制失败路径使用拒绝写入的剪贴板替身，不向系统剪贴板写入测试秘密。
+
+[会话 Hook](../web/src/useAdmin.ts)统一处理登录代际、取消与过期。退出先清除页面数据，再等待服务端确认；401 退出仍清理本地状态，网络失败显示未取得确认。登录与退出请求串行，旧响应、旧 CSRF 和被取消的刷新不能更新后续登录。口令提交后立即清空输入，CSRF 仅在页内存保存；名称、备注和其他远端文本按纯文本渲染。[请求封装](../web/src/api.ts)先核对约定的 HTTP 状态和 JSON 媒体类型，再直接引用权威消息 Schema，以 Ajv Draft 2020-12 和格式断言校验应答，TypeScript 仅声明界面使用的 DTO。
+
+本批前端使用 Node 26.13.1、npm 11.20.0 完成验证，Node 范围以 package.json 的 engines 为准。React/React DOM 19.3.1、TypeScript 7.0.2、Vite 8.3.8、React 插件 6.3.0、Ajv 8.20.0/ajv-formats 3.0.1、Vitest 5.1.0、Playwright 1.65.0 及全部直接开发依赖均使用精确版本，并提交 npm 锁文件。运行页面不加载外部字体、脚本或图片。
+
+### 开发运行
+
+首次构建服务端前，先按 [2.7](#27-集成与发布进展)生成管理台资源。按 [2.2](#22-启动与管理底座结果)准备已有状态目录后，在 Linux/WSL 的仓库根目录启动后端：
+
+```text
+go run ./cmd/remota-server serve --state-dir ~/.local/state/remota --listen 127.0.0.1:8080 --public-url http://127.0.0.1:5173
+```
+
+另一个终端从仓库根目录启动前端：
+
+```text
+cd web
+npm ci
+npm run dev
+```
+
+浏览器访问 `http://127.0.0.1:5173`，输入初始化时交付的管理员口令。Vite 将 `/api`、`/mcp` 和 `/healthz` 转发到 `http://127.0.0.1:8080`，保留浏览器 Host 和 Origin；后端的 public_url 须与浏览器地址一致。使用其他后端地址时设置 `REMOTA_API_TARGET`，并相应调整服务 public_url；不关闭 Host、Origin 或 CSRF 校验。
+
+### 验证入口与范围
+
+在 web 目录运行：
+
+```text
+npm run format:check
+npm run test
+npm run build
+npx playwright install chromium
+npm run test:browser
+```
+
+Windows 的浏览器测试通过 WSL/Linux 运行真实服务端，需要可用的 localhost 转发和与本机架构相同的 WSL。`REMOTA_E2E_WSL_DISTRO` 可指定发行版，否则使用默认发行版；Linux 直接启动测试服务。服务端测试程序每次运行只编译一次，各浏览器场景分别启动服务并建立独立 SQLite，结束时关闭服务并清理状态；编译或路径转换失败也清理构建目录。测试服务固定占用 `127.0.0.1:18080`，前端固定占用 `127.0.0.1:4173`，场景串行执行，bootstrap 秘密仅经私有管道进入当前场景夹具。已安装 Edge 时可设置 `REMOTA_BROWSER_CHANNEL=msedge` 使用该浏览器；本次实际使用 Windows 原生 Edge（Chromium）验收，并检查了桌面与移动端截图，十一个场景使用 `--repeat-each=2` 共二十二次执行通过。
+
+| 验证范围 | 入口 |
+|---|---|
+| 刷新单请求与隐藏暂停、失败保留旧数据、401/到期/身份变更清理、旧成功或失败响应不能跨登录、退出结果未知与认证请求串行、Schema 拒绝、筛选与数据清除 | [组件与会话用例](../web/src/useAdmin.test.tsx) |
+| 修改串行与旧读取隔离、核对门槛与自动刷新恢复、迟到修改成功或 401 应答隔离、修改 401/CSRF 清理、明确拒绝不补读、核对期间禁止采用修订、自动刷新保留草稿、结束与回收分别展示 | [组件与会话用例](../web/src/useAdmin.test.tsx) |
+| 签发字段与 MCP 权限、关联 ID 核对及已撤销记录提示、撤销应答丢失后的核对与重新确认、秘密弹窗关闭与到期清理、迟到签发与复制回调隔离、重新打开弹窗后排队的旧 close 事件不清除秘密 | [凭据组件用例](../web/src/CredentialAction.test.tsx) |
+| 切换语言保留输入、筛选、选择范围、弹窗及秘密，提示按当前语言展示，偏好恢复与存储异常；通过管理台快照验证公开地址与浏览器地址不同、缺失或不可用时的指引及占位符；复制会话 ID 的成功与失败回退，语言与指引操作不触发业务修改 | [语言与指引用例](../web/src/i18n.test.tsx) |
+| create/rotate 共用关联 ID 空间，重复签发仅返回已有凭据元数据，不重放秘密 | [HTTP 凭据生命周期用例](../internal/server/http_test.go) |
+| 应答状态与 JSON 媒体类型、修改方法/正文/Schema/资源 ID/epoch、签发类型/关联 ID/轮换来源匹配、编译失败后的目录清理与原始错误保留 | [请求校验](../web/src/api.test.ts)、[启动器异常清理](../web/e2e/server.test.ts) |
+| 真实 HTTP 登录正反例、Cookie/CSRF、三类列表与筛选、纯文本渲染、退出与恢复、修订冲突保留草稿后保存、分别结束客户端与设备、成功处理后丢失修改应答、access/MCP 签发后真实鉴权及轮换和撤销的关联影响、签发与轮换应答丢失后的核对与撤销、秘密关闭及重载清理、语言切换保留焦点与秘密、只读接入指引和会话 ID 复制回退、移动端无页面横向溢出 | [11 个浏览器场景](../web/e2e/console.spec.ts)、[Linux 测试服务](../tests/integration/console_linux_test.go) |
+
+2.6 的管理台交互已接入；内嵌资源与统一构建见下节。Windows 原生服务端存储问题及各平台原生验收缺口继续按前文记录处理。
+
+## 2.7 集成与发布进展
+
+第一批已接入[管理台资源嵌入](../web/embed.go)、[静态路由](../internal/server/static.go)及[统一构建入口](../tools/build.mjs)。服务端从内嵌文件系统提供首页与已打包的 assets 文件，支持 GET/HEAD；静态请求沿用 Host 检查和安全响应头，不创建身份或会话。未知路径、缺失资源、目录和越界路径不会回退到首页，业务 API 的鉴权与错误行为保持原样。运行产物不需要源码、前端文件或 Go、Node、Python。
+
+### 构建入口
+
+构建机器需要根 go.mod 对应的 Go 工具链，以及 web/package.json 声明的 Node.js/npm。在仓库根目录运行：
+
+```text
+node tools/build.mjs
+```
+
+入口按 web/package-lock.json 执行 npm ci、类型检查与前端构建，再以 CGO_ENABLED=0、只读 Go 依赖和 trimpath 在同一临时目录构建两个程序；两者编译成功后才替换目标目录，编译失败保留原产物并清理临时目录。产物位于 dist/<GOOS>-<GOARCH>/，Windows 文件带 .exe。构建失败立即返回失败，不用占位页面替代缺失资源；Go 嵌入声明要求 index.html 和 assets 均存在。web/dist 与根 dist 均为忽略的构建产物。
+
+目标默认由 Go 环境决定，可用 GOOS/GOARCH 选择已有目标矩阵。例如 Windows PowerShell 构建 Linux amd64：
+
+```powershell
+$env:GOOS = 'linux'
+$env:GOARCH = 'amd64'
+node tools/build.mjs
+```
+
+在 Linux shell 中可运行 `GOOS=linux GOARCH=amd64 node tools/build.mjs`。交叉编译仍只证明构建成功，平台支持按前文原生验收结果判断。
+
+从干净检出直接构建或测试 Go 服务端前，须先运行 `npm --prefix web ci` 和 `npm --prefix web run build` 生成资源；之后仍使用原有 Go 测试命令。单独构建 Agent 不依赖前端。Vite 开发入口继续保留。
+
+构建后可进入对应产物目录，按[运行说明](operations.md)初始化并启动。程序目录与状态目录分离，对外 HTTPS 部署边界不变。
+
+### 最小二进制验收
+
+[构建入口用例](../tools/build.test.mjs)以独立临时目录验证第二个程序编译失败时保留原产物、成功后替换两份程序，以及临时目录清理。运行 `node --test tools/build.test.mjs`，不执行真实工具链命令。[静态 HTTP 用例](../internal/server/static_test.go)覆盖 JS/CSS 资源及媒体类型、HEAD、方法限制、Host、请求体、目录与编码越界路径、API 鉴权边界，以及静态请求不修改业务状态。
+
+[二进制启动用例](../tests/integration/binary_linux_test.go)直接启动指定目录中已构建的同架构 Linux 产物，工作目录和状态使用独立临时目录，子进程使用空 PATH；检查 Agent 帮助、服务端初始化、健康状态、首页挂载点、引用的 JS/CSS 资源、真实管理员登录及正常停止。初始化秘密只经私有管道进入测试内存，不写入日志。Linux amd64 从仓库根目录运行：
+
+```sh
+REMOTA_BINARY_DIR="$PWD/dist/linux-amd64" go test -mod=readonly -count=1 -run '^TestBinaryStartup$' -timeout=45s ./tests/integration
+```
+
+未配置 REMOTA_BINARY_DIR 时该专项用例跳过，不计为产物验收通过。本批已通过 Windows 构建入口生成 Linux amd64 产物，在 WSL Linux amd64 原生运行二进制启动验收及根模块竞态测试；Windows 原生静态 HTTP 测试、前端检查及静态契约校验通过。临时移除首页时服务端构建按预期失败，Agent 仍可独立构建。
+
+### HTTPS 产品联合验收
+
+第二批通过[独立 Playwright 入口](../web/playwright.https.config.ts)验收真实产品，不启动 Vite 或测试业务服务。默认由 npm 的 pretest:https 钩子先调用统一构建，完成依赖安装和产物构建后才启动 Playwright；globalSetup 只编译控制器并准备路径。第三批增加显式 REMOTA_BINARY_DIR 模式：跳过产品重建，直接启动指定目录的服务端与 Agent，路径错误即失败，不回退到默认产物。两种模式均使用独立的临时工作目录和状态；浏览器访问二进制内嵌管理台，Agent 和 MCP 经过同一个 HTTPS 反向代理访问回环 HTTP 服务。代理保留原 Host，配置的 public_url 与浏览器地址一致。
+
+[联合场景](../web/e2e/https.spec.ts)串起浏览器签发凭据、一次终端 full 二次确认、八个 MCP 工具、真实双流输出、取消及跨租约命令。控制器确认命令父子进程已启动后，使用单调时间观察至少 33 秒并核对持续 poll；浏览器撤销 access 凭据后，同时核对任务无详情、Agent 退出、实际父子进程退出及管理台回收投影。最后轮换 MCP 凭据，检查旧身份失效、新身份重新初始化，以及退出后的浏览器清理。本机降权、结束与既有故障矩阵继续由 2.3、2.4、2.5 和 2.6 的测试承接，不在本批重复启动 Agent。
+
+[测试控制器](../tests/integration/https_linux_test.go)只负责 TLS 代理、产品进程、私有管道与终端输入，不增加产品接口或替代业务处理。每次生成独立 CA，仅导入[一次性浏览器 NSS 数据库](https://chromium.googlesource.com/chromium/src/+/main/docs/linux/cert_management.md)，Agent 和 MCP 使用本次 CA；不改系统信任库。浏览器保留 user namespace sandbox，不忽略 HTTPS 错误。反例验证未知 CA、域名不匹配，以及代理下的 Host、Origin 和 CSRF 拒绝；Agent 未信任 CA 时须明确报告证书校验失败并且没有创建会话。Cookie 须保持 Secure、HttpOnly 和 SameSite=Strict。秘密仅经私有管道和测试内存交付，关闭 trace 与失败页面快照；终端不得回显 access 凭据。
+
+本入口需要与构建架构一致的 Linux 环境、Chromium、certutil（Ubuntu 包 libnss3-tools）、伪终端、sh/bash 及可用的 user namespace sandbox。通常以普通用户运行；root 启动时浏览器降为 uid/gid 65534，浏览器文件须对该用户可执行。Windows 使用 WSL 运行 Linux 产品与浏览器，Playwright 驱动仍可在 Windows 运行；REMOTA_E2E_WSL_DISTRO 的含义与前文相同。
+
+先在 web 目录安装锁定的依赖及对应 Linux Chromium，再将 REMOTA_HTTPS_CHROMIUM 指向其可执行文件。Linux 示例：
+
+```sh
+npm ci
+npx playwright install --with-deps chromium --no-shell
+# certutil 需单独安装；此命令使用当前 Playwright 对应的浏览器路径。
+export REMOTA_HTTPS_CHROMIUM="$(node --input-type=module -e "import {chromium} from '@playwright/test'; console.log(chromium.executablePath())")"
+npm run test:https
+```
+
+Windows 可将该变量设为 WSL 中的 Linux 路径或对应的 Windows 路径，再从 web 目录运行同一 npm 命令。未配置浏览器路径或环境不满足时入口失败，不把跳过计为通过。构建失败清理临时目录并保留原始错误；控制器失败返回当前阶段，附带有界、脱敏的诊断。结束时先正常停止产品进程，超时强制回收，再到最终截止仍未退出则报告失败。[控制器故障测试](../web/e2e/https.test.ts)覆盖启动失败、中途退出与强制回收失效。此验收针对 Linux 产品运行链路；候选包与最小 CI 见下文，其余平台缺口与正式发布继续留在后续批次。
+
+本批已在 Windows 驱动、WSL Linux amd64 产品与 Chromium 158.0.8127.18 的组合下通过完整联合场景，并确认正常清理。前端 77 个测试、既有 11 个 Edge 浏览器场景、类型与格式检查、Linux 根模块竞态测试和静态契约校验通过。本批没有增加产品依赖或改变协议行为。
+
+### Linux amd64 候选包与 CI
+
+第三批提供[候选包入口](../tools/release.mjs)与[解压验收入口](../tools/verify-release.mjs)。两者在 Linux amd64 或同架构 WSL 内运行，需要 GNU tar、Git 和上述构建、测试工具；候选包运行本身不依赖这些工具。操作说明以 [operations.md](operations.md) 为唯一来源，打包时直接复制为 RUNNING.md，不维护另一份发行说明。
+
+从仓库根目录运行，版本格式为 x.y.z-rc.N，N 从 1 开始：
+
+```sh
+node tools/release.mjs 0.1.0-rc.1
+```
+
+入口在构建前检查版本目录，已有版本立即拒绝；统一构建固定为 Linux amd64，随后再次检查目标并核对二进制 ELF 架构与执行权限。产物位于 dist/releases/remota-0.1.0-rc.1-linux-amd64/，包含同名 .tar.gz 与 SHA256SUMS。组装使用 Linux 临时目录以避开 WSL 挂载文件系统的权限映射；目录和程序固定为 0755，RUNNING.md 与 release.json 为 0644。清理组装目录后才发布候选目录，失败时尝试各项清理，保留原始错误并附带清理错误。压缩包仅包含一个同名根目录及上述四个普通文件。release.json 记录 version、revision、dirty 和 target；本地允许记录未提交修改，CI 拒绝 dirty 候选包。构建成功与平台通过仍按原生验证矩阵分别记录。
+
+安装前文要求的 Chromium 与 certutil，并设置 REMOTA_HTTPS_CHROMIUM 后，从仓库根目录运行：
+
+```sh
+node tools/verify-release.mjs dist/releases/remota-0.1.0-rc.1-linux-amd64
+```
+
+验收先核对 SHA-256、固定文件清单，以及归档中每个条目的类型和精确权限，再解压至独立临时目录；权限检查不受运行者 umask 影响。随后核对 Linux amd64、版本和来源提交，来源提交须与当前验收检出一致。将该目录作为唯一 REMOTA_BINARY_DIR，顺序运行空 PATH 启动验收和既有 HTTPS 联合场景；失败立即返回非零，结束清理本次解压目录，清理失败不遮住原始验收错误。不会复制二进制并修正权限，也不会重建产品或选择默认 dist 产物。运行该入口前须已有 web 锁定依赖；若候选包来自其他提交，应切换到对应检出执行验收。
+
+[打包测试](../tools/release.test.mjs)覆盖固定清单、来源与目标、缺失文件、错误架构、权限过宽或丢失、受限 umask、损坏包、链接、CLI 已有版本预检，以及主操作和清理同时失败。[路径反例](../tools/release-path.test.mjs)需要已生成的默认 Linux amd64 产物和内嵌资源；它通过真实 Go 控制器验证显式目录无效时不会回退，即使默认产物可用。构建后在 Linux amd64 运行 `node --test tools/build.test.mjs tools/release.test.mjs tools/release-path.test.mjs`；业务正常与异常流程继续由既有验收承接。
+
+[CI 工作流](../.github/workflows/candidate.yml)在 main 推送、PR 和手动触发时执行。使用只读仓库权限及固定提交的官方 actions，按 Go 模块选择工具链，固定 Node 26.13.1 与 Python 3.13.15；前端和 Python 使用现有锁定依赖。流程执行契约及构建工具测试、统一构建打包、打包与路径反例、前端格式与单元测试、Go 校验与竞态检查、独立 validation 原生探针、既有 11 个管理台浏览器场景，最后验收解压包。版本和候选目录只定义一次，构建、验收及归档共同引用。仅全部成功后上传 .tar.gz 和 SHA256SUMS，保留 14 天；不上传状态、浏览器快照或临时运行文件。候选版本为 0.1.0-rc.<run_number>，来源记录实际检出的提交；归档名称包含尝试编号，重跑不会覆盖已归档产物。
+
+CI 选择 [GitHub 列出的 Ubuntu 22.04 x64 runner](https://github.com/actions/runner-images#available-images)，处于 [Playwright 支持范围](https://playwright.dev/docs/intro#system-requirements)内；保留 HTTPS 验收的浏览器 sandbox 与证书校验。环境缺失或专项失败不能作为通过；普通时钟探针不证明真实休眠。Windows 服务端存储、其余架构/macOS 原生回收及真实休眠仍待补齐，2.7 尚未整体完成，也没有自动发布正式版本。
+
+本批已在 WSL Linux amd64 使用 Node 26.13.1、Go 1.27.3 与 Chromium 158.0.8127.18 生成并验收 0.1.0-rc.2：归档权限符合约定，空 PATH 启动及完整 HTTPS 联合场景通过，11 个管理台浏览器场景串行通过。两套 Playwright 入口共用 web/test-results，应按 CI 顺序串行执行。24 个工具测试通过，临时变异验证确认路径反例能识别控制器忽略指定产物目录的错误；前端 77 个测试、类型与格式检查、根模块与 validation 竞态检查，以及契约和工作流静态校验通过。
+
+本机复验曾出现一次长命令启动确认超时，完整复验与连续 20 次启动、取消探针均通过，超时原因尚未稳定复现。控制器在确认失败时记录任务阶段、执行状态、错误码与 PID 标记数量，不记录命令正文、输出或秘密；原 8 秒启动确认与 33 秒跨租约观察保留。后续托管 CI 仍须核查稳定性；本地候选包如实标记 dirty=true，提交后的干净来源候选包须由该工作流验收，托管运行尚未触发。

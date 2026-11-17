@@ -12,6 +12,7 @@ try:
     import rfc3339_validator  # Required: date-time assertions must not be skipped.
     from jsonschema import Draft202012Validator, FormatChecker, validators
     from referencing import Registry, Resource
+    import openapi_contract
 except ImportError:
     print("Missing dependencies: python -m pip install -r tools/requirements-contracts.txt", file=sys.stderr)
     sys.exit(2)
@@ -80,6 +81,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1], help="Repository root")
     parser.add_argument("--refresh-tools-list", action="store_true", help="Refresh embedded schemas from canonical definitions, then validate")
+    parser.add_argument("--refresh-openapi", action="store_true", help="Refresh the HTTP test index and endpoint tables from YAML, then validate")
     args = parser.parse_args()
     root = args.root.resolve()
     contracts = root / "docs/contracts"
@@ -97,6 +99,9 @@ def main():
         raise ValueError("date-time assertion is unavailable")
     failures = []
     counts = {"valid": 0, "invalid": 0, "raw_json": 0, "markdown": 0, "links": 0, "mcp": 0}
+    openapi = openapi_contract.load(root)
+    counts.update(openapi_contract.validate(openapi, root, catalog, fixtures, ContractValidator, formats))
+    openapi_contract.sync_views(openapi, root, args.refresh_openapi)
 
     def require(condition, label):
         if not condition:
@@ -225,8 +230,13 @@ def main():
                 mcp_result(value, last_tool, label)
             counts["markdown"] += 1
 
-    for path in [root / "README.md", *sorted((root / "docs").rglob("*.md"))]:
-        for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", path.read_text(encoding="utf-8")):
+    link_sources = [(path, re.findall(r"\[[^\]]+\]\(([^)]+)\)", path.read_text(encoding="utf-8")))
+                    for path in [root / "README.md", *sorted((root / "docs").rglob("*.md"))]]
+    link_sources.append((root / "api/openapi.yaml", [node["externalDocs"]["url"]
+                        for node in openapi_contract.walk(openapi)
+                        if isinstance(node, dict) and "externalDocs" in node]))
+    for path, targets in link_sources:
+        for target in targets:
             if re.match(r"[a-zA-Z][a-zA-Z0-9+.-]*:", target):
                 continue
             filename, separator, anchor = unquote(target.strip("<>")).partition("#")

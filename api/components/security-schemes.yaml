@@ -1,0 +1,19 @@
+# Shared securitySchemes; referenced by ../openapi.yaml.
+AccessBearer:
+  type: http
+  scheme: bearer
+  description: access 凭据，仅用于注册设备；有效期、用途及撤销状态均需校验。
+AgentBearer:
+  type: http
+  scheme: bearer
+  description: Agent 凭据，仅能操作所绑定设备会话。
+AdminCookie:
+  type: apiKey
+  in: cookie
+  name: remota_admin
+  description: 独立管理员会话；不接受 Bearer 替代。
+CSRFToken:
+  type: apiKey
+  in: header
+  name: X-CSRF-Token
+  description: 与当前管理员 Cookie 会话绑定的 CSRF 值。

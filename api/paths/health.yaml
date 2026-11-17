@@ -1,0 +1,23 @@
+# Path items for the health channel; referenced by ../openapi.yaml.
+getHealth:
+  get:
+    operationId: getHealth
+    tags:
+    - public
+    summary: 读取公共健康状态
+    security: []
+    externalDocs:
+      url: ../../docs/contracts/README.md#http-%E4%B8%8E-json
+    responses:
+      '200':
+        $ref: ../openapi.yaml#/components/responses/HealthReady
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/HealthUnavailable

@@ -1,0 +1,420 @@
+# Path items for the admin channel; referenced by ../openapi.yaml.
+adminLogin:
+  post:
+    operationId: adminLogin
+    tags:
+    - admin
+    summary: 管理员登录
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E7%99%BB%E5%BD%95%E4%B8%8E%E6%B5%8F%E8%A7%88%E5%99%A8%E8%BA%AB%E4%BB%BD
+    security: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/Origin
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/AdminLoginInput
+    responses:
+      '200':
+        description: 管理员登录
+        headers: &admin-cookie-headers
+          X-Request-ID:
+            $ref: ../openapi.yaml#/components/headers/X-Request-ID
+          X-Remota-Epoch:
+            $ref: ../openapi.yaml#/components/headers/X-Remota-Epoch
+          Cache-Control:
+            $ref: ../openapi.yaml#/components/headers/Cache-Control
+          X-Content-Type-Options:
+            $ref: ../openapi.yaml#/components/headers/X-Content-Type-Options
+          Referrer-Policy:
+            $ref: ../openapi.yaml#/components/headers/Referrer-Policy
+          Set-Cookie:
+            $ref: ../openapi.yaml#/components/headers/AdminCookie
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/AdminLoginResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '429':
+        $ref: ../openapi.yaml#/components/responses/TooManyRequests
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+adminLogout:
+  post:
+    operationId: adminLogout
+    tags:
+    - admin
+    summary: 退出管理员会话
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E7%99%BB%E5%BD%95%E4%B8%8E%E6%B5%8F%E8%A7%88%E5%99%A8%E8%BA%AB%E4%BB%BD
+    security:
+    - AdminCookie: []
+      CSRFToken: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/Origin
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/Empty
+    responses:
+      '204':
+        description: 已处理，无响应正文
+        headers: *admin-cookie-headers
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+adminGetState:
+  get:
+    operationId: adminGetState
+    tags:
+    - admin
+    summary: 读取一致管理快照
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E7%AE%A1%E7%90%86%E5%BF%AB%E7%85%A7
+    security:
+    - AdminCookie: []
+    responses:
+      '200':
+        description: 读取一致管理快照
+        headers: &response-headers
+          X-Request-ID:
+            $ref: ../openapi.yaml#/components/headers/X-Request-ID
+          X-Remota-Epoch:
+            $ref: ../openapi.yaml#/components/headers/X-Remota-Epoch
+          Cache-Control:
+            $ref: ../openapi.yaml#/components/headers/Cache-Control
+          X-Content-Type-Options:
+            $ref: ../openapi.yaml#/components/headers/X-Content-Type-Options
+          Referrer-Policy:
+            $ref: ../openapi.yaml#/components/headers/Referrer-Policy
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/AdminSnapshot
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+adminCreateCredential:
+  post:
+    operationId: adminCreateCredential
+    tags:
+    - admin
+    summary: 签发凭据并一次性交付秘密
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E5%87%AD%E6%8D%AE%E6%A8%A1%E5%9E%8B%E4%B8%8E%E4%B8%80%E6%AC%A1%E6%80%A7%E4%BA%A4%E4%BB%98
+    security:
+    - AdminCookie: []
+      CSRFToken: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/Origin
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/CredentialCreate
+    responses:
+      '201':
+        description: 签发凭据并一次性交付秘密
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/CredentialIssue
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '429':
+        $ref: ../openapi.yaml#/components/responses/TooManyRequests
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+adminRotateCredential:
+  post:
+    operationId: adminRotateCredential
+    tags:
+    - admin
+    summary: 轮换凭据并撤销旧授权
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E5%87%AD%E6%8D%AE%E5%A4%B1%E6%95%88%E4%B8%8E%E8%BD%AE%E6%8D%A2
+    security:
+    - AdminCookie: []
+      CSRFToken: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/cid
+    - $ref: ../openapi.yaml#/components/parameters/Origin
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/CredentialRotate
+    responses:
+      '201':
+        description: 轮换凭据并撤销旧授权
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/CredentialIssue
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '429':
+        $ref: ../openapi.yaml#/components/responses/TooManyRequests
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+adminRevokeCredential:
+  post:
+    operationId: adminRevokeCredential
+    tags:
+    - admin
+    summary: 撤销凭据
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E5%87%AD%E6%8D%AE%E5%A4%B1%E6%95%88%E4%B8%8E%E8%BD%AE%E6%8D%A2
+    security:
+    - AdminCookie: []
+      CSRFToken: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/cid
+    - $ref: ../openapi.yaml#/components/parameters/Origin
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/Empty
+    responses:
+      '200':
+        description: 撤销凭据
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/CredentialRevokeResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+adminUpdateNote:
+  patch:
+    operationId: adminUpdateNote
+    tags:
+    - admin
+    summary: 修改会话备注
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E5%A4%87%E6%B3%A8%E5%8F%8A%E7%BB%93%E6%9D%9F%E6%93%8D%E4%BD%9C
+    security:
+    - AdminCookie: []
+      CSRFToken: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    - $ref: ../openapi.yaml#/components/parameters/Origin
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/NoteInput
+    responses:
+      '200':
+        description: 修改会话备注
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/AdminSessionResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '409':
+        $ref: ../openapi.yaml#/components/responses/Conflict
+      '410':
+        $ref: ../openapi.yaml#/components/responses/Gone
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+adminEndSession:
+  post:
+    operationId: adminEndSession
+    tags:
+    - admin
+    summary: 结束设备会话
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E5%A4%87%E6%B3%A8%E5%8F%8A%E7%BB%93%E6%9D%9F%E6%93%8D%E4%BD%9C
+    security:
+    - AdminCookie: []
+      CSRFToken: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/sid
+    - $ref: ../openapi.yaml#/components/parameters/Origin
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/Empty
+    responses:
+      '200':
+        description: 结束设备会话
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/SessionResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable
+adminEndClient:
+  post:
+    operationId: adminEndClient
+    tags:
+    - admin
+    summary: 结束 MCP 客户端
+    externalDocs:
+      url: ../../docs/contracts/admin.md#%E5%A4%87%E6%B3%A8%E5%8F%8A%E7%BB%93%E6%9D%9F%E6%93%8D%E4%BD%9C
+    security:
+    - AdminCookie: []
+      CSRFToken: []
+    parameters:
+    - $ref: ../openapi.yaml#/components/parameters/mcl_id
+    - $ref: ../openapi.yaml#/components/parameters/Origin
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ../openapi.yaml#/components/schemas/Empty
+    responses:
+      '200':
+        description: 结束 MCP 客户端
+        headers: *response-headers
+        content:
+          application/json:
+            schema:
+              $ref: ../openapi.yaml#/components/schemas/MCPClientEndResponse
+      '400':
+        $ref: ../openapi.yaml#/components/responses/BadRequest
+      '401':
+        $ref: ../openapi.yaml#/components/responses/Unauthenticated
+      '403':
+        $ref: ../openapi.yaml#/components/responses/Forbidden
+      '404':
+        $ref: ../openapi.yaml#/components/responses/NotFound
+      '405':
+        $ref: ../openapi.yaml#/components/responses/MethodNotAllowed
+      '413':
+        $ref: ../openapi.yaml#/components/responses/PayloadTooLarge
+      '415':
+        $ref: ../openapi.yaml#/components/responses/UnsupportedMediaType
+      '500':
+        $ref: ../openapi.yaml#/components/responses/InternalError
+      '503':
+        $ref: ../openapi.yaml#/components/responses/Unavailable

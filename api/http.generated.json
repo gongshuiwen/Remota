@@ -1,0 +1,824 @@
+{
+  "generated_from": "api/openapi.yaml; DO NOT EDIT; use --refresh-openapi",
+  "headers": {
+    "#/components/headers/X-Request-ID": {
+      "required": true,
+      "schema": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$"
+      }
+    },
+    "#/components/headers/X-Remota-Epoch": {
+      "required": true,
+      "schema": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$"
+      }
+    },
+    "#/components/headers/Cache-Control": {
+      "required": true,
+      "schema": {
+        "type": "string",
+        "const": "no-store"
+      }
+    },
+    "#/components/headers/X-Content-Type-Options": {
+      "required": true,
+      "schema": {
+        "type": "string",
+        "const": "nosniff"
+      }
+    },
+    "#/components/headers/Referrer-Policy": {
+      "required": true,
+      "schema": {
+        "type": "string",
+        "const": "no-referrer"
+      }
+    },
+    "#/components/headers/Allow": {
+      "required": true,
+      "schema": {
+        "type": "string",
+        "pattern": "^(GET|POST|PUT|PATCH)$"
+      }
+    },
+    "#/components/headers/Retry-After": {
+      "required": true,
+      "schema": {
+        "type": "string",
+        "pattern": "^[1-9][0-9]*$"
+      }
+    },
+    "#/components/headers/AdminCookie": {
+      "required": true,
+      "schema": {
+        "type": "string"
+      }
+    }
+  },
+  "responses": {
+    "#/components/responses/NotFound": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/MethodNotAllowed": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy",
+        "Allow": "#/components/headers/Allow"
+      }
+    },
+    "#/components/responses/HealthReady": {
+      "model": "HealthResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/BadRequest": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/Forbidden": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/InternalError": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/HealthUnavailable": {
+      "model": "HealthResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentCreateSession:201": {
+      "model": "Registration",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/Unauthenticated": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/PayloadTooLarge": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/UnsupportedMediaType": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/TooManyRequests": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy",
+        "Retry-After": "#/components/headers/Retry-After"
+      }
+    },
+    "#/components/responses/Unavailable": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentGetSession:200": {
+      "model": "SessionResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/Conflict": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "#/components/responses/Gone": {
+      "model": "Error",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentDecideSession:200": {
+      "model": "DecisionResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentReduceConsent:200": {
+      "model": "SessionResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentPollSession:200": {
+      "model": "PollResult",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentCloseSession:200": {
+      "model": "SessionResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentReportCall:204": {
+      "model": "",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentStartTask:200": {
+      "model": "StartResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentReportReceipt:200": {
+      "model": "TaskResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "agentReportResult:200": {
+      "model": "TaskResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "adminLogin:200": {
+      "model": "AdminLoginResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy",
+        "Set-Cookie": "#/components/headers/AdminCookie"
+      }
+    },
+    "adminLogout:204": {
+      "model": "",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy",
+        "Set-Cookie": "#/components/headers/AdminCookie"
+      }
+    },
+    "adminGetState:200": {
+      "model": "AdminSnapshot",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "adminCreateCredential:201": {
+      "model": "CredentialIssue",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "adminRotateCredential:201": {
+      "model": "CredentialIssue",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "adminRevokeCredential:200": {
+      "model": "CredentialRevokeResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "adminUpdateNote:200": {
+      "model": "AdminSessionResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "adminEndSession:200": {
+      "model": "SessionResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    },
+    "adminEndClient:200": {
+      "model": "MCPClientEndResponse",
+      "headers": {
+        "X-Request-ID": "#/components/headers/X-Request-ID",
+        "X-Remota-Epoch": "#/components/headers/X-Remota-Epoch",
+        "Cache-Control": "#/components/headers/Cache-Control",
+        "X-Content-Type-Options": "#/components/headers/X-Content-Type-Options",
+        "Referrer-Policy": "#/components/headers/Referrer-Policy"
+      }
+    }
+  },
+  "operations": [
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "pattern": "^/healthz$",
+      "request_model": "",
+      "path_models": {},
+      "responses": {
+        "200": "#/components/responses/HealthReady",
+        "400": "#/components/responses/BadRequest",
+        "403": "#/components/responses/Forbidden",
+        "405": "#/components/responses/MethodNotAllowed",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/HealthUnavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/sessions",
+      "pattern": "^/api/v1/agent/sessions$",
+      "request_model": "Empty",
+      "path_models": {},
+      "responses": {
+        "201": "agentCreateSession:201",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "405": "#/components/responses/MethodNotAllowed",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "429": "#/components/responses/TooManyRequests",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent/sessions/{sid}",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)$",
+      "request_model": "",
+      "path_models": {
+        "sid": "SessionId"
+      },
+      "responses": {
+        "200": "agentGetSession:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/agent/sessions/{sid}/decision",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)/decision$",
+      "request_model": "DecisionInput",
+      "path_models": {
+        "sid": "SessionId"
+      },
+      "responses": {
+        "200": "agentDecideSession:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/agent/sessions/{sid}/consent",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)/consent$",
+      "request_model": "ConsentReduction",
+      "path_models": {
+        "sid": "SessionId"
+      },
+      "responses": {
+        "200": "agentReduceConsent:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/sessions/{sid}/poll",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)/poll$",
+      "request_model": "PollInput",
+      "path_models": {
+        "sid": "SessionId"
+      },
+      "responses": {
+        "200": "agentPollSession:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "429": "#/components/responses/TooManyRequests",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/sessions/{sid}/close",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)/close$",
+      "request_model": "CloseInput",
+      "path_models": {
+        "sid": "SessionId"
+      },
+      "responses": {
+        "200": "agentCloseSession:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/sessions/{sid}/calls/{call_id}/result",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)/calls/(?P<call_id>[^/]+)/result$",
+      "request_model": "CallResultInput",
+      "path_models": {
+        "sid": "SessionId",
+        "call_id": "CallId"
+      },
+      "responses": {
+        "204": "agentReportCall:204",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/sessions/{sid}/tasks/{tid}/start",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)/tasks/(?P<tid>[^/]+)/start$",
+      "request_model": "StartInput",
+      "path_models": {
+        "sid": "SessionId",
+        "tid": "TaskId"
+      },
+      "responses": {
+        "200": "agentStartTask:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/sessions/{sid}/tasks/{tid}/receipts",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)/tasks/(?P<tid>[^/]+)/receipts$",
+      "request_model": "ReceiptInput",
+      "path_models": {
+        "sid": "SessionId",
+        "tid": "TaskId"
+      },
+      "responses": {
+        "200": "agentReportReceipt:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent/sessions/{sid}/tasks/{tid}/result",
+      "pattern": "^/api/v1/agent/sessions/(?P<sid>[^/]+)/tasks/(?P<tid>[^/]+)/result$",
+      "request_model": "ResultInput",
+      "path_models": {
+        "sid": "SessionId",
+        "tid": "TaskId"
+      },
+      "responses": {
+        "200": "agentReportResult:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/login",
+      "pattern": "^/api/v1/admin/login$",
+      "request_model": "AdminLoginInput",
+      "path_models": {},
+      "responses": {
+        "200": "adminLogin:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "405": "#/components/responses/MethodNotAllowed",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "429": "#/components/responses/TooManyRequests",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/logout",
+      "pattern": "^/api/v1/admin/logout$",
+      "request_model": "Empty",
+      "path_models": {},
+      "responses": {
+        "204": "adminLogout:204",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "405": "#/components/responses/MethodNotAllowed",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/state",
+      "pattern": "^/api/v1/admin/state$",
+      "request_model": "",
+      "path_models": {},
+      "responses": {
+        "200": "adminGetState:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "405": "#/components/responses/MethodNotAllowed",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/credentials",
+      "pattern": "^/api/v1/admin/credentials$",
+      "request_model": "CredentialCreate",
+      "path_models": {},
+      "responses": {
+        "201": "adminCreateCredential:201",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "429": "#/components/responses/TooManyRequests",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/credentials/{cid}/rotate",
+      "pattern": "^/api/v1/admin/credentials/(?P<cid>[^/]+)/rotate$",
+      "request_model": "CredentialRotate",
+      "path_models": {
+        "cid": "CredentialId"
+      },
+      "responses": {
+        "201": "adminRotateCredential:201",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "429": "#/components/responses/TooManyRequests",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/credentials/{cid}/revoke",
+      "pattern": "^/api/v1/admin/credentials/(?P<cid>[^/]+)/revoke$",
+      "request_model": "Empty",
+      "path_models": {
+        "cid": "CredentialId"
+      },
+      "responses": {
+        "200": "adminRevokeCredential:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/admin/sessions/{sid}",
+      "pattern": "^/api/v1/admin/sessions/(?P<sid>[^/]+)$",
+      "request_model": "NoteInput",
+      "path_models": {
+        "sid": "SessionId"
+      },
+      "responses": {
+        "200": "adminUpdateNote:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "409": "#/components/responses/Conflict",
+        "410": "#/components/responses/Gone",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/sessions/{sid}/end",
+      "pattern": "^/api/v1/admin/sessions/(?P<sid>[^/]+)/end$",
+      "request_model": "Empty",
+      "path_models": {
+        "sid": "SessionId"
+      },
+      "responses": {
+        "200": "adminEndSession:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/clients/{mcl_id}/end",
+      "pattern": "^/api/v1/admin/clients/(?P<mcl_id>[^/]+)/end$",
+      "request_model": "Empty",
+      "path_models": {
+        "mcl_id": "MCPClientId"
+      },
+      "responses": {
+        "200": "adminEndClient:200",
+        "400": "#/components/responses/BadRequest",
+        "401": "#/components/responses/Unauthenticated",
+        "403": "#/components/responses/Forbidden",
+        "404": "#/components/responses/NotFound",
+        "405": "#/components/responses/MethodNotAllowed",
+        "413": "#/components/responses/PayloadTooLarge",
+        "415": "#/components/responses/UnsupportedMediaType",
+        "500": "#/components/responses/InternalError",
+        "503": "#/components/responses/Unavailable"
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 设备通道只服务一个 Agent 主动建立的临时会话。设备不监听控制端口，也不提供浏览器授权接口。所有路径以 /api/v1/agent 为前缀；除注册使用 access Bearer 外，均使用该会话的 Agent Bearer。通用限制见 [通用规则](README.md)，任务类型见 [任务语义](tasks.md)。
 
-本通道关键消息的结构见[Schema](schemas/messages.schema.json)，跨消息授权、期限及故障时序见[验收规格](acceptance/README.md)。下文字段表用于查阅，状态和处理语义仍在本页定义。
+本通道 HTTP 绑定由[OpenAPI YAML](../../api/openapi.yaml)维护，关键消息的结构见[Schema](schemas/messages.schema.json)，跨消息授权、期限及故障时序见[验收规格](acceptance/README.md)。下文字段表用于查阅，状态和处理语义仍在本页定义。
 
 ## 设备会话
 
@@ -47,20 +47,23 @@ pending 不允许读取系统信息或执行命令。readonly 是有效接入模
 
 ## 端点目录
 
-下表均省略前缀 /api/v1/agent。Schema 名称对应[消息目录](schemas/messages.schema.json)中的同名 $defs；Empty 表示 JSON 空对象，无请求体不等于 Empty。除列出的成功状态外，适用通用错误；特定状态约束见各段。
+下表从[OpenAPI](../../api/openapi.yaml)生成，均省略前缀 /api/v1/agent。Schema 名称对应[消息目录](schemas/messages.schema.json)中的同名 $defs；Empty 表示 JSON 空对象，无请求体不等于 Empty。注册使用 access Bearer，其余操作使用绑定会话的 Agent Bearer。GET 不续租；TaskResponse 中的 task 为 TaskMeta。错误状态见 OpenAPI，特定业务约束见各段。
 
+<!-- BEGIN GENERATED OPENAPI: agent -->
+<!-- Generated from api/openapi.yaml; use --refresh-openapi. -->
 | 方法与路径 | 请求 Schema | 成功响应（状态、Schema） |
 |---|---|---|
-| POST /sessions | Empty，access Bearer | 201 Registration |
-| GET /sessions/{sid} | 无请求体 | 200 SessionResponse，不续租 |
+| POST /sessions | Empty | 201 Registration |
+| GET /sessions/{sid} | 无请求体 | 200 SessionResponse |
 | PUT /sessions/{sid}/decision | DecisionInput | 200 DecisionResponse |
 | PUT /sessions/{sid}/consent | ConsentReduction | 200 SessionResponse |
 | POST /sessions/{sid}/poll | PollInput | 200 PollResult |
 | POST /sessions/{sid}/close | CloseInput | 200 SessionResponse |
 | POST /sessions/{sid}/calls/{call_id}/result | CallResultInput | 204，无 JSON 正文 |
 | POST /sessions/{sid}/tasks/{tid}/start | StartInput | 200 StartResponse |
-| POST /sessions/{sid}/tasks/{tid}/receipts | ReceiptInput | 200 TaskResponse，task 为 TaskMeta |
-| POST /sessions/{sid}/tasks/{tid}/result | ResultInput | 200 TaskResponse，task 为 TaskMeta |
+| POST /sessions/{sid}/tasks/{tid}/receipts | ReceiptInput | 200 TaskResponse |
+| POST /sessions/{sid}/tasks/{tid}/result | ResultInput | 200 TaskResponse |
+<!-- END GENERATED OPENAPI: agent -->
 
 不存在替设备提交命令的设备端点，不存在全局“当前设备”。
 
