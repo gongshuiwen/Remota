@@ -40,7 +40,9 @@ export default async function buildHTTPS() {
       timeout: 120_000,
     });
     process.env.REMOTA_HTTPS_HELPER = await linuxPath(helper);
-    process.env.REMOTA_HTTPS_BINARIES = await linuxPath(join(root, 'dist', `linux-${arch}`));
+    const binaries = process.env.REMOTA_BINARY_DIR ?? join(root, 'dist', `linux-${arch}`);
+    if (!binaries.trim()) throw new Error('REMOTA_BINARY_DIR must identify the binaries to accept');
+    process.env.REMOTA_HTTPS_BINARIES = await linuxPath(binaries);
     process.env.REMOTA_HTTPS_CHROMIUM = await linuxPath(browser);
     return clean;
   } catch (error) {

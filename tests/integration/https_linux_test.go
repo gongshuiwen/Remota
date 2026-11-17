@@ -45,15 +45,12 @@ func TestHTTPSProducts(t *testing.T) {
 		}
 	})
 	dir := t.TempDir()
-	for _, name := range []string{"remota-server", "remota-agent"} {
-		b, err := os.ReadFile(filepath.Join(os.Getenv("REMOTA_HTTPS_BINARIES"), name))
-		require(t, err)
-		require(t, os.WriteFile(filepath.Join(dir, name), b, 0700))
-	}
+	binaries, err := filepath.Abs(os.Getenv("REMOTA_HTTPS_BINARIES"))
+	require(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
 	command := func(args ...string) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, filepath.Join(dir, "remota-server"), args...)
+		cmd := exec.CommandContext(ctx, filepath.Join(binaries, "remota-server"), args...)
 		cmd.Dir, cmd.Env = dir, []string{"PATH=/usr/bin:/bin"}
 		return cmd
 	}
@@ -180,7 +177,7 @@ func TestHTTPSProducts(t *testing.T) {
 			if c.Trusted {
 				cert = certFile
 			}
-			agent = startHTTPSAgent(t, ctx, filepath.Join(dir, "remota-agent"), origin, c.Token, cert)
+			agent = startHTTPSAgent(t, ctx, filepath.Join(binaries, "remota-agent"), origin, c.Token, cert)
 			if c.Trusted {
 				agent.prompt(t, "Press Enter to accept")
 			} else {
@@ -220,10 +217,19 @@ func TestHTTPSProducts(t *testing.T) {
 			reply = mcp.ok(t, "request_command", object{"session_id": c.Session, "request_id": auth.ID(""), "command": text, "reason": "HTTPS acceptance", "shell": "sh", "timeout_seconds": seconds})
 			if c.Kind == "long" {
 				tid := reply.(object)["task"].(object)["id"].(string)
+				started := false
+				t.Cleanup(func() {
+					if !started {
+						task := mcp.task(t, c.Session, tid)
+						b, _ := os.ReadFile(marker)
+						t.Logf("command start observation: phase=%v execution=%v outcome=%v error_code=%v stop=%v marker_fields=%d polls=%d", task["phase"], task["execution"], task["outcome"], task["error_code"], task["stop"], len(strings.Fields(string(b))), polls.Load())
+					}
+				})
 				eventually(t, 8*time.Second, func() bool {
 					b, _ := os.ReadFile(marker)
 					return len(strings.Fields(string(b))) == 2 && mcp.task(t, c.Session, tid)["execution"].(object)["state"] == "started"
 				})
+				started = true
 			}
 		case "observe":
 			exited := false

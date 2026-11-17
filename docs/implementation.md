@@ -1,6 +1,6 @@
 # Remota 第二阶段实施规划
 
-本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.7 集成与发布进展](#27-集成与发布进展)，管理台使用与验证见 [2.6](#26-管理台进展)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
+本文维护推荐技术组合、验证基线与分步门槛；当前实现进度见 [2.7 集成与发布进展](#27-集成与发布进展)，交付后的操作见[运行说明](operations.md)，管理台使用与验证见 [2.6](#26-管理台进展)，基础探针范围见 [2.0 技术验证结果](#20-技术验证结果)。
 
 [整体架构](architecture.md)和 [Draft 2 契约](contracts/README.md)继续保持编程语言无关。本文描述一套推荐实现，替换语言或框架时仍以相同契约和[验收规格](contracts/acceptance/README.md)为准。
 
@@ -246,16 +246,7 @@ go test -race -count=1 -timeout=90s ./...
 | 一次性交接失败、本机恢复及真实服务进程重启 | [入口测试](../cmd/remota-server/main_test.go)、[进程测试](../cmd/remota-server/main_process_test.go) |
 | 严格 JSON 和共用契约样例 | [协议测试](../internal/protocol/schema_test.go) |
 
-在 Linux 上使用 Go 1.27.3，从仓库根目录初始化并启动：
-
-```text
-go run ./cmd/remota-server init --state-dir ~/.local/state/remota
-go run ./cmd/remota-server serve --state-dir ~/.local/state/remota --listen 127.0.0.1:8080
-```
-
-初始化输出只交付一次，妥善保存秘密且不要写入日志。对外部署时用 `--public-url` 指定 HTTPS 根地址，由外部代理终止 TLS 并保留对应 Host；服务本身只监听回环地址。
-
-服务停止后，可运行 `go run ./cmd/remota-server recover --state-dir ~/.local/state/remota --inspect` 查看不含秘密的持久状态与待恢复操作；使用 `--reset-admin` 重置口令，使用 `--revoke` 指定需撤销的凭据 ID，该参数可重复。恢复会核实并保守撤销未确定操作涉及的凭据；恢复标记损坏时拒绝自动修复。若初始化已提交但秘密交付失败且无恢复标记，重置口令后须核对并撤销不可得的初始凭据，再新建凭据。若写入恢复标记本身失败，操作者仍须核对最后成功提交的状态并完成必要撤销。
+初始化、HTTPS 部署、秘密交付与离线恢复统一见[运行说明](operations.md)。源码调试时，在生成内嵌资源后，可将说明中的 `./remota-server` 替换为 `go run ./cmd/remota-server`；参数和故障处理规则相同。
 
 本阶段在 WSL Linux amd64 的 Linux 文件系统上运行服务进程和存储测试。Windows 原生测试中服务端存储初始化失败；当前目录同步使用只读句柄，而 [FlushFileBuffers 要求 GENERIC_WRITE](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)，仍需单独定位和修复，目前请使用 WSL/Linux。macOS 原生目录同步和持久性尚未验证，交叉编译不等于平台通过。真实系统休眠和浏览器端到端验收仍在后续阶段；MCP 的验证范围见 [2.4](#24-mcp-与任务闭环结果)。
 
@@ -277,7 +268,7 @@ go test -race -count=1 -timeout=120s ./...
 go run ./cmd/remota-agent --server http://127.0.0.1:8080
 ```
 
-按提示输入 access 凭据，输入不会回显；确认页面显示服务地址、操作方、期限和权限说明，回车同意只读，输入 `n` 拒绝。输入 `f` 后还须输入 `full` 才会批准命令执行。运行中输入 `q` 结束，`r` 收紧为只读。远端地址使用 HTTPS；使用非回环 HTTP 时，服务端和 Agent 均须显式设置 `--allow-insecure-http`。
+本机确认、full 二次确认、降权和结束操作统一见[Agent 接入说明](operations.md#agent-与-mcp)。
 
 | 验证范围 | 入口 |
 |---|---|
@@ -411,20 +402,13 @@ node tools/build.mjs
 
 从干净检出直接构建或测试 Go 服务端前，须先运行 `npm --prefix web ci` 和 `npm --prefix web run build` 生成资源；之后仍使用原有 Go 测试命令。单独构建 Agent 不依赖前端。Vite 开发入口继续保留。
 
-例如在 Linux amd64 使用新状态目录启动内嵌管理台：
-
-```sh
-./dist/linux-amd64/remota-server init --state-dir ~/.local/state/remota
-./dist/linux-amd64/remota-server serve --state-dir ~/.local/state/remota --listen 127.0.0.1:8080 --public-url http://127.0.0.1:8080
-```
-
-浏览器访问 `http://127.0.0.1:8080`。初始化交付与恢复操作继续按 [2.2](#22-启动与管理底座结果)处理，对外 HTTPS 部署边界不变。
+构建后可进入对应产物目录，按[运行说明](operations.md)初始化并启动。程序目录与状态目录分离，对外 HTTPS 部署边界不变。
 
 ### 最小二进制验收
 
 [构建入口用例](../tools/build.test.mjs)以独立临时目录验证第二个程序编译失败时保留原产物、成功后替换两份程序，以及临时目录清理。运行 `node --test tools/build.test.mjs`，不执行真实工具链命令。[静态 HTTP 用例](../internal/server/static_test.go)覆盖 JS/CSS 资源及媒体类型、HEAD、方法限制、Host、请求体、目录与编码越界路径、API 鉴权边界，以及静态请求不修改业务状态。
 
-[二进制启动用例](../tests/integration/binary_linux_test.go)仅使用已构建的同架构 Linux 产物。测试将两个程序复制到新的临时目录，子进程使用空 PATH；检查 Agent 帮助、服务端初始化、健康状态、首页挂载点、引用的 JS/CSS 资源、真实管理员登录及正常停止。初始化秘密只经私有管道进入测试内存，不写入日志。Linux amd64 从仓库根目录运行：
+[二进制启动用例](../tests/integration/binary_linux_test.go)直接启动指定目录中已构建的同架构 Linux 产物，工作目录和状态使用独立临时目录，子进程使用空 PATH；检查 Agent 帮助、服务端初始化、健康状态、首页挂载点、引用的 JS/CSS 资源、真实管理员登录及正常停止。初始化秘密只经私有管道进入测试内存，不写入日志。Linux amd64 从仓库根目录运行：
 
 ```sh
 REMOTA_BINARY_DIR="$PWD/dist/linux-amd64" go test -mod=readonly -count=1 -run '^TestBinaryStartup$' -timeout=45s ./tests/integration
@@ -434,7 +418,7 @@ REMOTA_BINARY_DIR="$PWD/dist/linux-amd64" go test -mod=readonly -count=1 -run '^
 
 ### HTTPS 产品联合验收
 
-第二批通过[独立 Playwright 入口](../web/playwright.https.config.ts)验收真实产品，不启动 Vite 或测试业务服务。npm 的 pretest:https 钩子先调用统一构建，完成依赖安装和产物构建后才启动 Playwright；globalSetup 只编译控制器并准备路径。测试将服务端和 Agent 复制到独立运行目录；浏览器访问二进制内嵌管理台，Agent 和 MCP 经过同一个 HTTPS 反向代理访问回环 HTTP 服务。代理保留原 Host，配置的 public_url 与浏览器地址一致。
+第二批通过[独立 Playwright 入口](../web/playwright.https.config.ts)验收真实产品，不启动 Vite 或测试业务服务。默认由 npm 的 pretest:https 钩子先调用统一构建，完成依赖安装和产物构建后才启动 Playwright；globalSetup 只编译控制器并准备路径。第三批增加显式 REMOTA_BINARY_DIR 模式：跳过产品重建，直接启动指定目录的服务端与 Agent，路径错误即失败，不回退到默认产物。两种模式均使用独立的临时工作目录和状态；浏览器访问二进制内嵌管理台，Agent 和 MCP 经过同一个 HTTPS 反向代理访问回环 HTTP 服务。代理保留原 Host，配置的 public_url 与浏览器地址一致。
 
 [联合场景](../web/e2e/https.spec.ts)串起浏览器签发凭据、一次终端 full 二次确认、八个 MCP 工具、真实双流输出、取消及跨租约命令。控制器确认命令父子进程已启动后，使用单调时间观察至少 33 秒并核对持续 poll；浏览器撤销 access 凭据后，同时核对任务无详情、Agent 退出、实际父子进程退出及管理台回收投影。最后轮换 MCP 凭据，检查旧身份失效、新身份重新初始化，以及退出后的浏览器清理。本机降权、结束与既有故障矩阵继续由 2.3、2.4、2.5 和 2.6 的测试承接，不在本批重复启动 Agent。
 
@@ -452,6 +436,36 @@ export REMOTA_HTTPS_CHROMIUM="$(node --input-type=module -e "import {chromium} f
 npm run test:https
 ```
 
-Windows 可将该变量设为 WSL 中的 Linux 路径或对应的 Windows 路径，再从 web 目录运行同一 npm 命令。未配置浏览器路径或环境不满足时入口失败，不把跳过计为通过。构建失败清理临时目录并保留原始错误；控制器失败返回当前阶段，附带有界、脱敏的诊断。结束时先正常停止产品进程，超时强制回收，再到最终截止仍未退出则报告失败。[控制器故障测试](../web/e2e/https.test.ts)覆盖启动失败、中途退出与强制回收失效。此验收针对 Linux 产品运行链路，其余平台缺口、发行打包和 CI 发布门禁继续留在 2.7 后续批次。
+Windows 可将该变量设为 WSL 中的 Linux 路径或对应的 Windows 路径，再从 web 目录运行同一 npm 命令。未配置浏览器路径或环境不满足时入口失败，不把跳过计为通过。构建失败清理临时目录并保留原始错误；控制器失败返回当前阶段，附带有界、脱敏的诊断。结束时先正常停止产品进程，超时强制回收，再到最终截止仍未退出则报告失败。[控制器故障测试](../web/e2e/https.test.ts)覆盖启动失败、中途退出与强制回收失效。此验收针对 Linux 产品运行链路；候选包与最小 CI 见下文，其余平台缺口与正式发布继续留在后续批次。
 
 本批已在 Windows 驱动、WSL Linux amd64 产品与 Chromium 158.0.8127.18 的组合下通过完整联合场景，并确认正常清理。前端 77 个测试、既有 11 个 Edge 浏览器场景、类型与格式检查、Linux 根模块竞态测试和静态契约校验通过。本批没有增加产品依赖或改变协议行为。
+
+### Linux amd64 候选包与 CI
+
+第三批提供[候选包入口](../tools/release.mjs)与[解压验收入口](../tools/verify-release.mjs)。两者在 Linux amd64 或同架构 WSL 内运行，需要 GNU tar、Git 和上述构建、测试工具；候选包运行本身不依赖这些工具。操作说明以 [operations.md](operations.md) 为唯一来源，打包时直接复制为 RUNNING.md，不维护另一份发行说明。
+
+从仓库根目录运行，版本格式为 x.y.z-rc.N，N 从 1 开始：
+
+```sh
+node tools/release.mjs 0.1.0-rc.1
+```
+
+入口在构建前检查版本目录，已有版本立即拒绝；统一构建固定为 Linux amd64，随后再次检查目标并核对二进制 ELF 架构与执行权限。产物位于 dist/releases/remota-0.1.0-rc.1-linux-amd64/，包含同名 .tar.gz 与 SHA256SUMS。组装使用 Linux 临时目录以避开 WSL 挂载文件系统的权限映射；目录和程序固定为 0755，RUNNING.md 与 release.json 为 0644。清理组装目录后才发布候选目录，失败时尝试各项清理，保留原始错误并附带清理错误。压缩包仅包含一个同名根目录及上述四个普通文件。release.json 记录 version、revision、dirty 和 target；本地允许记录未提交修改，CI 拒绝 dirty 候选包。构建成功与平台通过仍按原生验证矩阵分别记录。
+
+安装前文要求的 Chromium 与 certutil，并设置 REMOTA_HTTPS_CHROMIUM 后，从仓库根目录运行：
+
+```sh
+node tools/verify-release.mjs dist/releases/remota-0.1.0-rc.1-linux-amd64
+```
+
+验收先核对 SHA-256、固定文件清单，以及归档中每个条目的类型和精确权限，再解压至独立临时目录；权限检查不受运行者 umask 影响。随后核对 Linux amd64、版本和来源提交，来源提交须与当前验收检出一致。将该目录作为唯一 REMOTA_BINARY_DIR，顺序运行空 PATH 启动验收和既有 HTTPS 联合场景；失败立即返回非零，结束清理本次解压目录，清理失败不遮住原始验收错误。不会复制二进制并修正权限，也不会重建产品或选择默认 dist 产物。运行该入口前须已有 web 锁定依赖；若候选包来自其他提交，应切换到对应检出执行验收。
+
+[打包测试](../tools/release.test.mjs)覆盖固定清单、来源与目标、缺失文件、错误架构、权限过宽或丢失、受限 umask、损坏包、链接、CLI 已有版本预检，以及主操作和清理同时失败。[路径反例](../tools/release-path.test.mjs)需要已生成的默认 Linux amd64 产物和内嵌资源；它通过真实 Go 控制器验证显式目录无效时不会回退，即使默认产物可用。构建后在 Linux amd64 运行 `node --test tools/build.test.mjs tools/release.test.mjs tools/release-path.test.mjs`；业务正常与异常流程继续由既有验收承接。
+
+[CI 工作流](../.github/workflows/candidate.yml)在 main 推送、PR 和手动触发时执行。使用只读仓库权限及固定提交的官方 actions，按 Go 模块选择工具链，固定 Node 26.13.1 与 Python 3.13.15；前端和 Python 使用现有锁定依赖。流程执行契约及构建工具测试、统一构建打包、打包与路径反例、前端格式与单元测试、Go 校验与竞态检查、独立 validation 原生探针、既有 11 个管理台浏览器场景，最后验收解压包。版本和候选目录只定义一次，构建、验收及归档共同引用。仅全部成功后上传 .tar.gz 和 SHA256SUMS，保留 14 天；不上传状态、浏览器快照或临时运行文件。候选版本为 0.1.0-rc.<run_number>，来源记录实际检出的提交；归档名称包含尝试编号，重跑不会覆盖已归档产物。
+
+CI 选择 [GitHub 列出的 Ubuntu 22.04 x64 runner](https://github.com/actions/runner-images#available-images)，处于 [Playwright 支持范围](https://playwright.dev/docs/intro#system-requirements)内；保留 HTTPS 验收的浏览器 sandbox 与证书校验。环境缺失或专项失败不能作为通过；普通时钟探针不证明真实休眠。Windows 服务端存储、其余架构/macOS 原生回收及真实休眠仍待补齐，2.7 尚未整体完成，也没有自动发布正式版本。
+
+本批已在 WSL Linux amd64 使用 Node 26.13.1、Go 1.27.3 与 Chromium 158.0.8127.18 生成并验收 0.1.0-rc.2：归档权限符合约定，空 PATH 启动及完整 HTTPS 联合场景通过，11 个管理台浏览器场景串行通过。两套 Playwright 入口共用 web/test-results，应按 CI 顺序串行执行。24 个工具测试通过，临时变异验证确认路径反例能识别控制器忽略指定产物目录的错误；前端 77 个测试、类型与格式检查、根模块与 validation 竞态检查，以及契约和工作流静态校验通过。
+
+本机复验曾出现一次长命令启动确认超时，完整复验与连续 20 次启动、取消探针均通过，超时原因尚未稳定复现。控制器在确认失败时记录任务阶段、执行状态、错误码与 PID 标记数量，不记录命令正文、输出或秘密；原 8 秒启动确认与 33 秒跨租约观察保留。后续托管 CI 仍须核查稳定性；本地候选包如实标记 dirty=true，提交后的干净来源候选包须由该工作流验收，托管运行尚未触发。

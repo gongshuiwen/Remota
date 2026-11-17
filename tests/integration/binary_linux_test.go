@@ -25,15 +25,12 @@ func TestBinaryStartup(t *testing.T) {
 		t.Skip("set REMOTA_BINARY_DIR to the native Linux build output")
 	}
 	dir := t.TempDir()
-	for _, name := range []string{"remota-server", "remota-agent"} {
-		data, err := os.ReadFile(filepath.Join(artifacts, name))
-		require(t, err)
-		require(t, os.WriteFile(filepath.Join(dir, name), data, 0700))
-	}
+	artifacts, err := filepath.Abs(artifacts)
+	require(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	t.Cleanup(cancel)
 	command := func(name string, args ...string) *exec.Cmd {
-		cmd := exec.CommandContext(ctx, filepath.Join(dir, name), args...)
+		cmd := exec.CommandContext(ctx, filepath.Join(artifacts, name), args...)
 		cmd.Dir = dir
 		cmd.Env = []string{"PATH="}
 		return cmd
